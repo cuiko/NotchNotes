@@ -8,6 +8,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 SOURCE_ICON="$ROOT_DIR/Resources/AppIcon.png"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
 cd "$ROOT_DIR"
 swift build -c release
@@ -43,7 +44,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>
   <string>NotchNotes</string>
   <key>CFBundleIdentifier</key>
-  <string>local.notch-notes.prototype</string>
+  <string>io.github.oiloil.NotchNotes</string>
   <key>CFBundleName</key>
   <string>NotchNotes</string>
   <key>CFBundleIconFile</key>
@@ -51,9 +52,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>0.1.1</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>2</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -61,6 +62,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
 rm -rf "$APPLICATIONS_APP_DIR"
 cp -R "$APP_DIR" "$APPLICATIONS_APP_DIR"
