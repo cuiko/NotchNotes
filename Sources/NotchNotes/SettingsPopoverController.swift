@@ -14,7 +14,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 238, height: 126)
+    private let contentSize = NSSize(width: 238, height: 196)
 
     init(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
@@ -221,9 +221,29 @@ struct SettingsPopoverView: View {
                     }
                 }
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Confirm delete")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.50))
+
+                Toggle(isOn: $settingsStore.confirmBeforeDelete) {
+                    Text("Ask before clearing or removing a tab")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+                .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.72)))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.055))
+                )
+            }
         }
         .padding(14)
-        .frame(width: 238, height: 126)
+        .frame(width: 238, height: 196)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))

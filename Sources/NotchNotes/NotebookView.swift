@@ -54,11 +54,26 @@ struct NotebookView: View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 12) {
                 HStack(alignment: .center, spacing: 10) {
-                    TabPagerControl(store: store, editorInteractionState: editorInteractionState)
+                    TabPagerControl(store: store, settingsStore: settingsStore, editorInteractionState: editorInteractionState)
 
                     Spacer()
 
-                    Button(action: store.clear) {
+                    Button {
+                        if settingsStore.confirmBeforeDelete {
+                            NSApp.activate(ignoringOtherApps: true)
+                            let alert = NSAlert()
+                            alert.messageText = "Clear note?"
+                            alert.informativeText = "The content of this tab will be permanently erased."
+                            alert.addButton(withTitle: "Clear")
+                            alert.addButton(withTitle: "Cancel")
+                            alert.alertStyle = .warning
+                            if alert.runModal() == .alertFirstButtonReturn {
+                                store.clear()
+                            }
+                        } else {
+                            store.clear()
+                        }
+                    } label: {
                         Image(systemName: "trash")
                             .frame(width: 28, height: 28)
                     }
@@ -269,6 +284,7 @@ private struct TabDropDelegate: DropDelegate {
 
 struct TabPagerControl: View {
     @ObservedObject var store: NoteStore
+    @ObservedObject var settingsStore: AppSettingsStore
     let editorInteractionState: EditorInteractionState
     @Namespace private var tabAnimation
     @State private var draggingID: UUID?
@@ -276,6 +292,16 @@ struct TabPagerControl: View {
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             Button {
+                if settingsStore.confirmBeforeDelete {
+                    NSApp.activate(ignoringOtherApps: true)
+                    let alert = NSAlert()
+                    alert.messageText = "Remove tab?"
+                    alert.informativeText = "The content of this tab will be permanently deleted."
+                    alert.addButton(withTitle: "Delete")
+                    alert.addButton(withTitle: "Cancel")
+                    alert.alertStyle = .warning
+                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                }
                 rememberCurrentSelection()
                 withAnimation(tabSwitchAnimation) {
                     store.removeActiveTab()

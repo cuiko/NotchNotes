@@ -34,10 +34,23 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    @Published var confirmBeforeDelete: Bool {
+        didSet {
+            UserDefaults.standard.set(confirmBeforeDelete, forKey: Self.confirmBeforeDeleteKey)
+        }
+    }
+
     private static let triggerModeKey = "notchNotes.triggerMode"
+    private static let confirmBeforeDeleteKey = "notchNotes.confirmBeforeDelete"
 
     init() {
         let rawMode = UserDefaults.standard.string(forKey: Self.triggerModeKey)
         triggerMode = rawMode.flatMap(TriggerMode.init(rawValue:)) ?? .hover
+
+        if UserDefaults.standard.object(forKey: Self.confirmBeforeDeleteKey) != nil {
+            confirmBeforeDelete = UserDefaults.standard.bool(forKey: Self.confirmBeforeDeleteKey)
+        } else {
+            confirmBeforeDelete = true
+        }
     }
 }
