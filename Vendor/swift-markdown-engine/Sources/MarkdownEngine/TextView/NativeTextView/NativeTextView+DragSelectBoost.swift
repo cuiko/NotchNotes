@@ -11,11 +11,16 @@
 import AppKit
 
 extension NativeTextView {
-    // Shift-Tab sends insertBacktab: (not a text insertion), so outdent the
-    // selected lines / current line here.
-    override func insertBacktab(_ sender: Any?) {
-        if MarkdownLists.adjustIndentation(self, outdent: true) { return }
-        super.insertBacktab(sender)
+    // Shift-Tab: outdent the selected lines / current line. Handled in keyDown
+    // because insertBacktab: isn't reliably delivered in the borderless panel.
+    override func keyDown(with event: NSEvent) {
+        let isTab = event.keyCode == 48
+        let onlyShift = event.modifierFlags
+            .intersection([.command, .control, .option, .shift]) == .shift
+        if isTab, onlyShift, MarkdownLists.adjustIndentation(self, outdent: true) {
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {

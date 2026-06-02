@@ -40,16 +40,22 @@ struct MarkdownLists {
         if hadTrailingNewline { body.removeLast() }
 
         var changed = false
-        let lines = body.components(separatedBy: "\n").map { line -> String in
+        var firstLineDelta = 0
+        let lines = body.components(separatedBy: "\n").enumerated().map { index, line -> String in
             if outdent {
-                if line.hasPrefix("\t") { changed = true; return String(line.dropFirst()) }
+                if line.hasPrefix("\t") {
+                    changed = true
+                    if index == 0 { firstLineDelta = -1 }
+                    return String(line.dropFirst())
+                }
                 var trimmed = line
                 var removed = 0
                 while removed < 2 && trimmed.hasPrefix(" ") { trimmed.removeFirst(); removed += 1 }
-                if removed > 0 { changed = true }
+                if removed > 0 { changed = true; if index == 0 { firstLineDelta = -removed } }
                 return trimmed
             } else {
                 changed = true
+                if index == 0 { firstLineDelta = 1 }
                 return "\t" + line
             }
         }
@@ -57,8 +63,16 @@ struct MarkdownLists {
 
         let newBody = lines.joined(separator: "\n") + (hadTrailingNewline ? "\n" : "")
         performEdit(textView, replace: lineRange, with: newBody)
-        let newLen = (newBody as NSString).length - (hadTrailingNewline ? 1 : 0)
-        textView.setSelectedRange(NSRange(location: lineRange.location, length: max(0, newLen)))
+
+        if sel.length == 0 {
+            // Preserve a collapsed caret (shifted by the first line's change)
+            // rather than selecting the whole line.
+            let newCaret = max(lineRange.location, sel.location + firstLineDelta)
+            textView.setSelectedRange(NSRange(location: newCaret, length: 0))
+        } else {
+            let newLen = (newBody as NSString).length - (hadTrailingNewline ? 1 : 0)
+            textView.setSelectedRange(NSRange(location: lineRange.location, length: max(0, newLen)))
+        }
         return true
     }
 
