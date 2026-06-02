@@ -44,6 +44,10 @@ private extension MarkdownTokenizer {
         pattern: "(?<!\\$)\\$(?!\\$)([^$\\n]+?)\\$(?!\\$)",
         options: []
     )
+    static let strikethroughRegex = try! NSRegularExpression(
+        pattern: "~~([^~\\n]+(?:~[^~\\n]+)*)~~",
+        options: []
+    )
 }
 
 // MARK: - Tokenizer
@@ -184,6 +188,23 @@ enum MarkdownTokenizer {
                                         range: full,
                                         contentRange: content,
                                         markerRanges: [openDollar, closeDollar]))
+        }
+
+        // Strikethrough ~~text~~ (parsed after code tokens exist so overlap check is accurate)
+        for match in strikethroughRegex.matches(in: text, options: [], range: fullRange) {
+            let full = match.range(at: 0)
+            let inCode = tokens.contains {
+                ($0.kind == .codeBlock || $0.kind == .inlineCode) &&
+                NSIntersectionRange($0.range, full).length > 0
+            }
+            if inCode { continue }
+            let content = match.range(at: 1)
+            let openMarker = NSRange(location: full.location, length: 2)
+            let closeMarker = NSRange(location: full.location + full.length - 2, length: 2)
+            tokens.append(MarkdownToken(kind: .strikethrough,
+                                        range: full,
+                                        contentRange: content,
+                                        markerRanges: [openMarker, closeMarker]))
         }
 
         return tokens

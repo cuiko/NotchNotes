@@ -159,6 +159,7 @@ enum MarkdownStyler {
         )
         result += styleHeadings(ctx)
         result += styleEmphasis(ctx)
+        result += styleStrikethrough(ctx)
         result += styleAutoLinks(ctx)
         result += styleWikiLinks(ctx, wikiLinkIDProvider: wikiLinkIDProvider)
         result += styleImageEmbeds(ctx)
