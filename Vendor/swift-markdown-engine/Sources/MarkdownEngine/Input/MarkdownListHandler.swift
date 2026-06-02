@@ -27,6 +27,41 @@ struct MarkdownLists {
         textView.didChangeText()
     }
 
+    /// Indents (or outdents) every line touched by the current selection.
+    /// Returns true when it changed the text so the caller can consume the key.
+    static func adjustIndentation(_ textView: NSTextView, outdent: Bool) -> Bool {
+        let nsText = textView.string as NSString
+        guard nsText.length > 0 else { return false }
+        let sel = textView.selectedRange()
+        let lineRange = nsText.lineRange(for: sel)
+        let block = nsText.substring(with: lineRange) as NSString
+        let hadTrailingNewline = block.hasSuffix("\n")
+        var body = block as String
+        if hadTrailingNewline { body.removeLast() }
+
+        var changed = false
+        let lines = body.components(separatedBy: "\n").map { line -> String in
+            if outdent {
+                if line.hasPrefix("\t") { changed = true; return String(line.dropFirst()) }
+                var trimmed = line
+                var removed = 0
+                while removed < 2 && trimmed.hasPrefix(" ") { trimmed.removeFirst(); removed += 1 }
+                if removed > 0 { changed = true }
+                return trimmed
+            } else {
+                changed = true
+                return "\t" + line
+            }
+        }
+        guard changed else { return false }
+
+        let newBody = lines.joined(separator: "\n") + (hadTrailingNewline ? "\n" : "")
+        performEdit(textView, replace: lineRange, with: newBody)
+        let newLen = (newBody as NSString).length - (hadTrailingNewline ? 1 : 0)
+        textView.setSelectedRange(NSRange(location: lineRange.location, length: max(0, newLen)))
+        return true
+    }
+
     static let listRegex = try! NSRegularExpression(
         pattern: #"^\s*((?:(\d+)\.|[-•])(?:\s+\[[ xX]\])?\s+)"#
     )
@@ -55,7 +90,6 @@ struct MarkdownLists {
         var attributesList: [(range: NSRange, attributes: [NSAttributedString.Key: Any])] = []
         guard listsEnabled else { return attributesList }
 
-        let indentPerLevel = configuration.lists.indentPerLevel
         let extraLineHeight = configuration.lists.extraLineHeight
         let spaceWidth = (" " as NSString).size(withAttributes: [.font: baseFont]).width
 
@@ -72,18 +106,26 @@ struct MarkdownLists {
                 let ws = nsText.substring(with: wsRange)
                 let tabCount = ws.filter { $0 == "\t" }.count
                 let spaceCount = ws.filter { $0 == " " }.count
-                let depthIndent = CGFloat(tabCount) * indentPerLevel + CGFloat(spaceCount) * spaceWidth
-
                 let markerString = nsText.substring(with: markerRange) as NSString
                 let markerWidth = markerString.size(withAttributes: [.font: baseFont]).width
                 let hasCheckbox = markerString.range(of: "[").location != NSNotFound
-                let isChecked = markerString.range(of: "[x]", options: [.caseInsensitive]).location != NSNotFound
-                let extraSpacing = (hasCheckbox && !isChecked)
+                let extraSpacing = hasCheckbox
                     ? HeadingHelpers.checkboxExtraSpacing(font: baseFont, configuration: configuration.checkbox)
                     : 0
 
-                ps.tabStops = []
-                ps.defaultTabInterval = indentPerLevel
+                // One indent level steps by the marker's content offset so a
+                // nested item's marker/checkbox aligns under the parent's text.
+                let bracketLocation = markerString.range(of: "[").location
+                let preMarkerWidth = bracketLocation == NSNotFound
+                    ? 0
+                    : markerString.substring(to: bracketLocation).size(withAttributes: [.font: baseFont]).width
+                let levelStep = markerWidth + extraSpacing - preMarkerWidth
+                let depthIndent = CGFloat(tabCount) * levelStep + CGFloat(spaceCount) * spaceWidth
+
+                // Explicit tab stops: TextKit 2 doesn't honor `defaultTabInterval`
+                // with an empty `tabStops`, so a leading tab ignored indentPerLevel.
+                ps.tabStops = (1...20).map { NSTextTab(textAlignment: .left, location: CGFloat($0) * levelStep) }
+                ps.defaultTabInterval = levelStep
                 ps.firstLineHeadIndent = 0
                 ps.headIndent = depthIndent + markerWidth + extraSpacing
 
@@ -121,6 +163,34 @@ struct MarkdownLists {
         let activeConfig = (textView as? NativeTextView)?.configuration ?? .default
         let listsEnabled = activeConfig.lists.helpersEnabled
         let autoClosePairsEnabled = activeConfig.lists.autoClosePairsEnabled
+
+        // BACKSPACE on an empty list item: outdent one level if nested, else
+        // remove the marker (exit the list) — never leave it to default delete,
+        // which mis-renders the lone marker as an indented (sub-list) item.
+        if listsEnabled, replacementString.isEmpty, affectedCharRange.length == 1 {
+            let nsText = textView.string as NSString
+            let caret = affectedCharRange.location + affectedCharRange.length
+            let lineRange = nsText.lineRange(for: NSRange(location: min(affectedCharRange.location, nsText.length), length: 0))
+            let line = nsText.substring(with: lineRange) as NSString
+            let lineNSRange = NSRange(location: 0, length: line.length)
+            if let match = MarkdownLists.listRegex.firstMatch(in: line as String, range: lineNSRange) {
+                let markerEnd = match.range.location + match.range.length
+                let afterMarker = line.substring(from: markerEnd).trimmingCharacters(in: .whitespacesAndNewlines)
+                let wsLen = MarkdownLists.leadingWhitespaceRegex.firstMatch(in: line as String, range: lineNSRange)?.range.length ?? 0
+                if afterMarker.isEmpty, caret == lineRange.location + markerEnd {
+                    if wsLen > 0 {
+                        let ws = line.substring(to: wsLen)
+                        let removeLen = ws.hasSuffix("\t") ? 1 : min(2, wsLen)
+                        MarkdownLists.performEdit(textView, replace: NSRange(location: lineRange.location + wsLen - removeLen, length: removeLen), with: "")
+                        textView.setSelectedRange(NSRange(location: caret - removeLen, length: 0))
+                    } else {
+                        MarkdownLists.performEdit(textView, replace: NSRange(location: lineRange.location, length: markerEnd), with: "")
+                        textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+                    }
+                    return false
+                }
+            }
+        }
 
         func insertAutoPair(open openChar: String, close closeChar: String) -> Bool {
             let insertionLocation = affectedCharRange.location
@@ -183,6 +253,10 @@ struct MarkdownLists {
         // TAB: indent list items (skip in code blocks)
         if replacementString == "\t" && !isInCodeBlock {
             guard listsEnabled else { return true }
+            // A block selection (drag-selected lines) indents every line.
+            if affectedCharRange.length > 0 {
+                return MarkdownLists.adjustIndentation(textView, outdent: false) ? false : true
+            }
             let nsText = textView.string as NSString
             let insertionLocation = affectedCharRange.location
             let safeLocTAB = min(affectedCharRange.location, nsText.length)
@@ -248,23 +322,6 @@ struct MarkdownLists {
             let currentLineRange = nsText.lineRange(for: NSRange(location: safeLocENTER, length: 0))
             let currentLine = nsText.substring(with: currentLineRange).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Horizontal rule expansion
-            if currentLine.range(of: "^-{3,}$", options: .regularExpression) != nil {
-                let hrFont = (textView as? NativeTextView)?.baseFont
-                    ?? textView.font
-                    ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-                let hyphenWidth = ("-" as NSString).size(withAttributes: [.font: hrFont]).width
-                let visibleWidth = textView.enclosingScrollView?.contentView.bounds.width
-                                    ?? textView.textContainer?.containerSize.width
-                                    ?? textView.bounds.width
-                let count = Int(visibleWidth / hyphenWidth)
-                let fullLine = String(repeating: "-", count: max(count, 3))
-                let newString = fullLine + "\n"
-                MarkdownLists.performEdit(textView, replace: currentLineRange, with: newString)
-                textView.setSelectedRange(NSRange(location: currentLineRange.location + fullLine.count + 1, length: 0))
-                return false
-            }
-
             if currentLine.range(of: "^```\\w*$", options: .regularExpression) != nil {
                 let textBeforeLine = nsText.substring(to: currentLineRange.location)
                 let openingCount = textBeforeLine.components(separatedBy: "```").count - 1
@@ -322,7 +379,7 @@ struct MarkdownLists {
                         newListItem = "\n" + leadingWhitespace + "\(number + 1). "
                     }
                 } else {
-                    let prefixIndent = leadingWhitespace.isEmpty ? "  " : leadingWhitespace
+                    let prefixIndent = leadingWhitespace
                     if hasCheckbox {
                         let bulletChar = marker.contains("•") ? "•" : "-"
                         newListItem = "\n" + prefixIndent + "\(bulletChar) [ ] "

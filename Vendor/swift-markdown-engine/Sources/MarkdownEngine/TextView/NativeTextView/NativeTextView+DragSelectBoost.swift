@@ -11,6 +11,13 @@
 import AppKit
 
 extension NativeTextView {
+    // Shift-Tab sends insertBacktab: (not a text insertion), so outdent the
+    // selected lines / current line here.
+    override func insertBacktab(_ sender: Any?) {
+        if MarkdownLists.adjustIndentation(self, outdent: true) { return }
+        super.insertBacktab(sender)
+    }
+
     override func mouseDown(with event: NSEvent) {
         if let toggled = toggleTaskCheckboxIfHit(event: event), toggled {
             return

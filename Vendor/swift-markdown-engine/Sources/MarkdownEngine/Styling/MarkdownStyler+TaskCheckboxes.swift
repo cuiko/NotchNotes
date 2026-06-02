@@ -63,19 +63,24 @@ extension MarkdownStyler {
                         ]))
                     }
                 }
-                if isActiveSyntax { continue }
-                let afterCheckboxIndex = checkboxRange.location + checkboxRange.length
-                if afterCheckboxIndex < ctx.nsText.length {
-                    let spaceRange = NSRange(location: afterCheckboxIndex, length: 1)
-                    let spaceChar = ctx.nsText.substring(with: spaceRange)
-                    if spaceChar == " " && !isChecked {
-                        let extraSpacing = HeadingHelpers.checkboxExtraSpacing(
-                            font: ctx.baseFont,
-                            configuration: ctx.configuration.checkbox
-                        )
-                        attrs.append((spaceRange, [.kern: extraSpacing]))
-                    }
+                // Apply the checkbox-to-text spacing on the closing `]` (not the
+                // trailing space, which TextKit collapses at line end). Also
+                // normalize for the hidden text width — `[x]` is wider than `[ ]`
+                // — so the content starts at the same offset in both states.
+                if checkboxRange.length > 0 {
+                    let closingBracketRange = NSRange(
+                        location: checkboxRange.location + checkboxRange.length - 1,
+                        length: 1
+                    )
+                    let extraSpacing = HeadingHelpers.checkboxExtraSpacing(
+                        font: ctx.baseFont,
+                        configuration: ctx.configuration.checkbox
+                    )
+                    let normalizedWidth = HeadingHelpers.textWidth("[ ]", font: ctx.baseFont)
+                    let actualWidth = HeadingHelpers.textWidth(checkboxText, font: ctx.baseFont)
+                    attrs.append((closingBracketRange, [.kern: extraSpacing + normalizedWidth - actualWidth]))
                 }
+                if isActiveSyntax { continue }
             }
             if markerRange.location != NSNotFound {
                 attrs.append((markerRange, [.foregroundColor: NSColor.clear]))
