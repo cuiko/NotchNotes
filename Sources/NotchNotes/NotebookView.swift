@@ -271,8 +271,9 @@ struct TabPagerControl: View {
                             store.selectTab(tab.id)
                         }
                     } label: {
+                        let tabColor = Color(hex: tab.colorHex) ?? .white
                         Capsule()
-                            .fill(isSelected ? Color.white.opacity(0.82) : Color.white.opacity(0.34))
+                            .fill(isSelected ? tabColor.opacity(0.9) : tabColor.opacity(0.38))
                             .frame(width: isSelected ? 20 : 6, height: 6)
                             .frame(width: 26, height: 24)
                             .contentShape(Rectangle())

@@ -1,5 +1,12 @@
 import Combine
 import Foundation
+import SwiftUI
+
+private let tabColorPalette: [String] = [
+    "#FF6B6B", "#FF9F43", "#FECA57", "#48DBFB",
+    "#1DD1A1", "#54A0FF", "#A29BFE", "#FD79A8",
+    "#E17055", "#00CEC9",
+]
 
 struct NoteTab: Identifiable, Codable, Equatable {
     var id: UUID
@@ -7,6 +14,7 @@ struct NoteTab: Identifiable, Codable, Equatable {
     var createdAt: Date
     var selectionLocation: Int?
     var selectionLength: Int?
+    var colorHex: String
 
     init(id: UUID = UUID(), text: String = "", createdAt: Date = Date()) {
         self.id = id
@@ -14,6 +22,30 @@ struct NoteTab: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         selectionLocation = 0
         selectionLength = 0
+        colorHex = tabColorPalette.randomElement()!
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        text = try container.decode(String.self, forKey: .text)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        selectionLocation = try container.decodeIfPresent(Int.self, forKey: .selectionLocation)
+        selectionLength = try container.decodeIfPresent(Int.self, forKey: .selectionLength)
+        colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
+            ?? tabColorPalette.randomElement()!
+    }
+}
+
+extension Color {
+    init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
     }
 }
 
