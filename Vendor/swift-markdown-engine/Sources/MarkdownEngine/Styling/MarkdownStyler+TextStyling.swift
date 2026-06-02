@@ -72,16 +72,7 @@ extension MarkdownStyler {
             }
         }
 
-        let manager = NSFontManager.shared
         let regularBold = boldFont(in: ctx)
-        // The SF system font has no italic face; NSFontManager returns the same
-        // font when it can't italicize, so detect that and slant via obliqueness.
-        let italicConverted = manager.convert(ctx.baseFont, toHaveTrait: .italicFontMask)
-        let italicAvailable = italicConverted.fontName != ctx.baseFont.fontName
-        let regularItalic = italicAvailable ? italicConverted : ctx.baseFont
-        let regularBoldItalic = italicAvailable
-            ? manager.convert(regularBold, toHaveTrait: .italicFontMask)
-            : regularBold
 
         var attrs: [StyledRange] = []
         var i = 0
@@ -91,22 +82,39 @@ extension MarkdownStyler {
             var j = i + 1
             while j < len && traits[j] == t { j += 1 }
             let range = NSRange(location: i, length: j - i)
-            let font: NSFont
-            if t == boldBit | italicBit {
-                font = headingAwareBoldItalic(in: ctx, contentLocation: i) ?? regularBoldItalic
-            } else if t == boldBit {
-                font = regularBold
-            } else {
-                font = headingAwareBoldItalic(in: ctx, contentLocation: i) ?? regularItalic
+            let wantsBold = (t & boldBit) != 0
+            let wantsItalic = (t & italicBit) != 0
+            var font = headingAwareFont(in: ctx, contentLocation: i, bold: wantsBold)
+                ?? (wantsBold ? regularBold : ctx.baseFont)
+            // The SF system font has no real italic face, and TextKit 2 ignores
+            // the `.obliqueness` attribute, so shear the font itself to slant it.
+            if wantsItalic {
+                font = obliqueFont(font)
             }
-            var emphasisAttrs: [NSAttributedString.Key: Any] = [.font: font]
-            if (t & italicBit) != 0, !italicAvailable {
-                emphasisAttrs[.obliqueness] = 0.2
-            }
-            attrs.append((range, emphasisAttrs))
+            attrs.append((range, [.font: font]))
             i = j
         }
         return attrs
+    }
+
+    /// Produces a slanted (oblique) version of `base` by applying a shear to
+    /// the font matrix, since SF has no italic face and TextKit 2 ignores the
+    /// `.obliqueness` attribute.
+    // Styling runs on the main thread, so a plain cache is safe and avoids
+    // rebuilding a sheared font for every italic run on every restyle.
+    private static var obliqueFontCache: [String: NSFont] = [:]
+
+    private static func obliqueFont(_ base: NSFont) -> NSFont {
+        let key = "\(base.fontName)|\(base.pointSize)"
+        if let cached = obliqueFontCache[key] { return cached }
+        // Unit-scale shear (keep the existing size from the descriptor); a
+        // non-unit scale here would multiply the point size.
+        let slant: CGFloat = 0.2
+        let matrix = AffineTransform(m11: 1, m12: 0, m21: slant, m22: 1, tX: 0, tY: 0)
+        let descriptor = base.fontDescriptor.addingAttributes([.matrix: matrix])
+        let font = NSFont(descriptor: descriptor, size: base.pointSize) ?? base
+        obliqueFontCache[key] = font
+        return font
     }
 
     private static func boldFont(in ctx: StylingContext) -> NSFont {
@@ -115,29 +123,20 @@ extension MarkdownStyler {
             ?? NSFontManager.shared.convert(ctx.baseFont, toHaveTrait: .boldFontMask)
     }
 
-    private static func italicFont(in ctx: StylingContext) -> NSFont {
-        let desc = ctx.baseDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: desc, size: ctx.baseFont.pointSize)
-            ?? NSFontManager.shared.convert(ctx.baseFont, toHaveTrait: .italicFontMask)
-    }
-
-    private static func boldItalicFont(in ctx: StylingContext) -> NSFont {
-        let desc = ctx.baseDescriptor.withSymbolicTraits([.bold, .italic])
-        return NSFont(descriptor: desc, size: ctx.baseFont.pointSize)
-            ?? NSFontManager.shared.convert(ctx.baseFont, toHaveTrait: [.boldFontMask, .italicFontMask])
-    }
-
-    /// Returns a heading-sized bold+italic font when the location sits inside a heading, else `nil` so emphasis doesn't shrink mid-line.
-    private static func headingAwareBoldItalic(in ctx: StylingContext, contentLocation: Int) -> NSFont? {
+    /// Returns a heading-sized font (optionally bold) when the location sits
+    /// inside a heading, else `nil` so emphasis doesn't shrink mid-line. Italic
+    /// is applied separately via obliqueness.
+    private static func headingAwareFont(in ctx: StylingContext, contentLocation: Int, bold: Bool) -> NSFont? {
         guard let headingToken = ctx.tokens.first(where: {
             $0.kind == .heading && NSLocationInRange(contentLocation, $0.contentRange)
         }) else { return nil }
         let level = headingToken.markerRanges.first?.length ?? 1
         let multiplier = ctx.configuration.headings.fontMultiplier(for: level)
-        let headingBase = NSFont(name: ctx.fontName, size: ctx.baseFont.pointSize * multiplier)
-            ?? NSFont.systemFont(ofSize: ctx.baseFont.pointSize * multiplier)
-        let desc = headingBase.fontDescriptor.withSymbolicTraits([.bold, .italic])
-        return NSFont(descriptor: desc, size: headingBase.pointSize)
-            ?? NSFontManager.shared.convert(headingBase, toHaveTrait: [.boldFontMask, .italicFontMask])
+        let size = ctx.baseFont.pointSize * multiplier
+        let headingBase = NSFont(name: ctx.fontName, size: size) ?? NSFont.systemFont(ofSize: size)
+        guard bold else { return headingBase }
+        let desc = headingBase.fontDescriptor.withSymbolicTraits(.bold)
+        return NSFont(descriptor: desc, size: size)
+            ?? NSFontManager.shared.convert(headingBase, toHaveTrait: .boldFontMask)
     }
 }
