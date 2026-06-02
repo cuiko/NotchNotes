@@ -241,10 +241,37 @@ struct MarkdownCommandLabel: View {
     }
 }
 
+private struct TabDropDelegate: DropDelegate {
+    let targetTab: NoteTab
+    let store: NoteStore
+    @Binding var draggingID: UUID?
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID,
+              draggingID != targetTab.id,
+              let fromIndex = store.tabs.firstIndex(where: { $0.id == draggingID }),
+              let toIndex = store.tabs.firstIndex(where: { $0.id == targetTab.id })
+        else { return }
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.82)) {
+            store.moveTab(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+}
+
 struct TabPagerControl: View {
     @ObservedObject var store: NoteStore
     let editorInteractionState: EditorInteractionState
     @Namespace private var tabAnimation
+    @State private var draggingID: UUID?
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -278,9 +305,18 @@ struct TabPagerControl: View {
                             .contentShape(Rectangle())
                             .matchedGeometryEffect(id: tab.id, in: tabAnimation)
                             .animation(tabSwitchAnimation, value: isSelected)
+                            .opacity(draggingID == tab.id ? 0.45 : 1.0)
                     }
                     .buttonStyle(TabDotButtonStyle(isSelected: isSelected))
                     .help("Switch tab")
+                    .onDrag {
+                        draggingID = tab.id
+                        return NSItemProvider(object: tab.id.uuidString as NSString)
+                    }
+                    .onDrop(
+                        of: [.text],
+                        delegate: TabDropDelegate(targetTab: tab, store: store, draggingID: $draggingID)
+                    )
                 }
             }
             .frame(minWidth: 20, alignment: .center)

@@ -85,6 +85,11 @@ final class NoteStore: ObservableObject {
         save()
     }
 
+    func moveTab(fromOffsets source: IndexSet, toOffset destination: Int) {
+        tabs.move(fromOffsets: source, toOffset: destination)
+        save()
+    }
+
     func updateSelection(for id: UUID, range: NSRange) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let clamped = clampedRange(range, text: tabs[index].text)
