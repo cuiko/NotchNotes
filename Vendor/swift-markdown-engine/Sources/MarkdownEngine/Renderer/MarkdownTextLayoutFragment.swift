@@ -17,6 +17,8 @@ extension NSAttributedString.Key {
     static let latexBounds = NSAttributedString.Key("LatexImageBounds")
     static let latexIsBlock = NSAttributedString.Key("LatexIsBlock")
     static let latexBlockOffsetY = NSAttributedString.Key("LatexBlockOffsetY")
+    static let blockquoteAccent = NSAttributedString.Key("BlockquoteAccentColor")
+    static let horizontalRule = NSAttributedString.Key("HorizontalRuleColor")
 }
 
 final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
@@ -33,7 +35,7 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     /// and block images drawn below text via paragraphSpacing.
     override var renderingSurfaceBounds: CGRect {
         var bounds = super.renderingSurfaceBounds
-        if hasCodeBlockBackground {
+        if hasCodeBlockBackground || hasBlockquote || hasHorizontalRule {
             let containerWidth = textLayoutManager?.textContainer?.size.width ?? bounds.width
             // Extend left to container edge
             bounds.origin.x = -layoutFragmentFrame.origin.x
@@ -52,6 +54,12 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     override func draw(at point: CGPoint, in context: CGContext) {
         // 1. Code-block backgrounds (behind text)
         drawCodeBlockBackground(at: point, in: context)
+
+        // 1b. Blockquote callout background + left bar (behind text)
+        drawBlockquote(at: point, in: context)
+
+        // 1c. Horizontal rule (drawn line in place of the hidden dashes)
+        drawHorizontalRule(at: point, in: context)
 
         // 2. LaTeX images (behind text — hidden markers are invisible anyway)
         drawLatexImages(at: point, in: context)
@@ -228,6 +236,108 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
                abs(colorRGB.blueComponent - currentBgRGB.blueComponent) < tolerance
     }
 
+    // MARK: - Blockquote callout
+
+    private var hasBlockquote: Bool {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return false }
+        return ts.attribute(.blockquoteAccent, at: range.location, effectiveRange: nil) is NSColor
+    }
+
+    private func drawBlockquote(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0,
+              let accent = ts.attribute(.blockquoteAccent, at: range.location, effectiveRange: nil) as? NSColor
+        else { return }
+
+        // Draw the callout box tightly around the text lines (+ internal padding)
+        // rather than the whole fragment, so the paragraph spacing becomes an
+        // external margin separating it from adjacent content.
+        var lineFrags = textLineFragments
+        if lineFrags.count > 1, let last = lineFrags.last, last.characterRange.length == 0 {
+            lineFrags.removeLast()
+        }
+        guard let firstLF = lineFrags.first, let lastLF = lineFrags.last else { return }
+
+        let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let internalPad: CGFloat = 5
+        let textTop = point.y + firstLF.typographicBounds.origin.y
+        let textBottom = point.y + lastLF.typographicBounds.origin.y + lastLF.typographicBounds.height
+
+        var effectiveHeight = layoutFragmentFrame.height
+        if textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 {
+            effectiveHeight -= last.typographicBounds.height
+        }
+
+        // For adjacent quote lines, extend the box to the fragment edge so
+        // consecutive boxes abut exactly (no overlap seam, no gap).
+        let prevIsQuote = range.location > 0
+            && ts.attribute(.blockquoteAccent, at: range.location - 1, effectiveRange: nil) != nil
+        let nextIsQuote = NSMaxRange(range) < ts.length
+            && ts.attribute(.blockquoteAccent, at: NSMaxRange(range), effectiveRange: nil) != nil
+
+        let topEdge = prevIsQuote ? point.y : (textTop - internalPad)
+        let bottomEdge = nextIsQuote ? (point.y + effectiveHeight) : (textBottom + internalPad)
+
+        let scale = textLayoutManager?.textContainer?.textView?.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        // Round both edges the same way so an abutting neighbor's shared edge
+        // lands on the same pixel (no overlap seam, no gap).
+        let snappedY = (topEdge * scale).rounded() / scale
+        let snappedMaxY = (bottomEdge * scale).rounded() / scale
+        let height = snappedMaxY - snappedY
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
+        NSGraphicsContext.current = nsContext
+
+        let leftX = point.x - layoutFragmentFrame.origin.x
+
+        let bgRect = CGRect(x: leftX, y: snappedY, width: containerWidth, height: height)
+        accent.withAlphaComponent(0.10).setFill()
+        NSBezierPath(rect: bgRect).fill()
+
+        let barRect = CGRect(x: leftX + 4, y: snappedY, width: 3, height: height)
+        accent.setFill()
+        NSBezierPath(rect: barRect).fill()
+    }
+
+    // MARK: - Horizontal rule
+
+    private var hasHorizontalRule: Bool {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return false }
+        return ts.attribute(.horizontalRule, at: range.location, effectiveRange: nil) is NSColor
+    }
+
+    private func drawHorizontalRule(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0,
+              let color = ts.attribute(.horizontalRule, at: range.location, effectiveRange: nil) as? NSColor
+        else { return }
+
+        var lineFrags = textLineFragments
+        if lineFrags.count > 1, let last = lineFrags.last, last.characterRange.length == 0 {
+            lineFrags.removeLast()
+        }
+        guard let firstLF = lineFrags.first else { return }
+
+        let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let lineMidY = point.y + firstLF.typographicBounds.origin.y + firstLF.typographicBounds.height / 2
+
+        let scale = textLayoutManager?.textContainer?.textView?.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let thickness: CGFloat = 1
+        let y = (lineMidY * scale).rounded() / scale - thickness / 2
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
+        NSGraphicsContext.current = nsContext
+
+        let leftX = point.x - layoutFragmentFrame.origin.x
+        let ruleRect = CGRect(x: leftX, y: y, width: containerWidth, height: thickness)
+        color.setFill()
+        NSBezierPath(rect: ruleRect).fill()
+    }
+
     // MARK: - LaTeX / Block Image Helpers
 
     /// Compute the draw rect for a block image at `attrRange` using `point` as
@@ -364,7 +474,7 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             )
 
             if isChecked {
-                NSColor(calibratedRed: 0.69, green: 0.93, blue: 0.81, alpha: 1.0).setFill()
+                configuration.theme.controlAccent.setFill()
                 checkboxPath.fill()
 
                 let checkPath = NSBezierPath()

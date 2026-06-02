@@ -215,9 +215,17 @@ extension NativeTextViewCoordinator {
 
         let shouldSkipSelectionRestyle = pendingEditedRange != nil
         let tokensChanged = activeTokenIndices != prevActive
+        // Caret-line-based rendering (horizontal rules, blockquotes, checkbox
+        // syntax reveal) isn't token-driven, so also restyle when the caret
+        // crosses into a different paragraph.
+        let caretParagraphChanged: Bool = {
+            guard let prevLoc = previousCaretLocation, prevLoc != caretLoc else { return false }
+            let safePrev = min(prevLoc, nsText.length)
+            return nsText.paragraphRange(for: NSRange(location: safePrev, length: 0)) != paragraphRange
+        }()
         if shouldSkipSelectionRestyle {
             // textDidChange performs the pending restyle for this edit cycle.
-        } else if tokensChanged {
+        } else if tokensChanged || caretParagraphChanged {
             restyleTextView(tv, paragraphCandidates: paragraphCandidates, tokens: tokens)
         }
 

@@ -169,6 +169,7 @@ enum MarkdownStyler {
         result += styleBlockLatex(ctx)
         result += styleInlineLatex(ctx)
         result += styleHorizontalRules(ctx)
+        result += styleBlockquotes(ctx)
         result += styleIncompleteLinkBrackets(ctx)
         result += styleTaskCheckboxes(ctx)
         result += shrinkInactiveMarkers(ctx)
@@ -328,16 +329,25 @@ extension MarkdownStyler {
     static func styleHorizontalRules(_ ctx: StylingContext) -> [StyledRange] {
         var attrs: [StyledRange] = []
         let hrPattern = "^[ \\t]*-{3,}[ \\t]*$"
-        if let hrRegex = try? NSRegularExpression(pattern: hrPattern, options: [.anchorsMatchLines]) {
-            for hrMatch in hrRegex.matches(in: ctx.text, range: ctx.fullRange) {
-                attrs.append((hrMatch.range, [.foregroundColor: NSColor.clear]))
-                attrs.append((hrMatch.range, [
-                    .strikethroughStyle: NSUnderlineStyle.thick.rawValue,
-                    .strikethroughColor: ctx.configuration.theme.strikethroughColor
-                ]))
-                let rulePara = NSMutableParagraphStyle()
-                attrs.append((hrMatch.range, [.paragraphStyle: rulePara]))
-            }
+        guard let hrRegex = try? NSRegularExpression(pattern: hrPattern, options: [.anchorsMatchLines]) else {
+            return attrs
+        }
+        for hrMatch in hrRegex.matches(in: ctx.text, range: ctx.fullRange) {
+            let lineRange = ctx.nsText.lineRange(for: hrMatch.range)
+            // Reveal the raw dashes while the caret is on the line so it stays editable.
+            let isActive = NSLocationInRange(ctx.caretLocation, lineRange)
+                || ctx.caretLocation == hrMatch.range.location
+                || ctx.caretLocation == NSMaxRange(hrMatch.range)
+            if isActive { continue }
+
+            let rulePara = NSMutableParagraphStyle()
+            rulePara.paragraphSpacingBefore = 6
+            rulePara.paragraphSpacing = 6
+            attrs.append((hrMatch.range, [
+                .foregroundColor: NSColor.clear,
+                .horizontalRule: ctx.configuration.theme.strikethroughColor.withAlphaComponent(0.5),
+                .paragraphStyle: rulePara
+            ]))
         }
         return attrs
     }
