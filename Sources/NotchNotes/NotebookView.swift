@@ -67,7 +67,7 @@ struct NotebookView: View {
                             alert.addButton(withTitle: "Clear")
                             alert.addButton(withTitle: "Cancel")
                             alert.alertStyle = .warning
-                            if alert.runModal() == .alertFirstButtonReturn {
+                            if runRaisedNotchAlert(alert) == .alertFirstButtonReturn {
                                 store.clear()
                             }
                         } else {
@@ -256,38 +256,26 @@ struct MarkdownCommandLabel: View {
     }
 }
 
-private struct TabDropDelegate: DropDelegate {
-    let targetTab: NoteTab
-    let store: NoteStore
-    @Binding var draggingID: UUID?
-
-    func dropEntered(info: DropInfo) {
-        guard let draggingID,
-              draggingID != targetTab.id,
-              let fromIndex = store.tabs.firstIndex(where: { $0.id == draggingID }),
-              let toIndex = store.tabs.firstIndex(where: { $0.id == targetTab.id })
-        else { return }
-        withAnimation(.spring(response: 0.26, dampingFraction: 0.82)) {
-            store.moveTab(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-        }
+@MainActor
+private func runRaisedNotchAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+    // runModal() pins the alert to .modalPanel level, which sits below the
+    // notch panel's .statusBar level. Re-raise it once the modal loop is live.
+    let timer = Timer(timeInterval: 0, repeats: false) { _ in
+        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 3)
+        alert.window.orderFrontRegardless()
     }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingID = nil
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
+    RunLoop.main.add(timer, forMode: .modalPanel)
+    return alert.runModal()
 }
 
 struct TabPagerControl: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var settingsStore: AppSettingsStore
     let editorInteractionState: EditorInteractionState
-    @Namespace private var tabAnimation
     @State private var draggingID: UUID?
+    @State private var dragOffset: CGFloat = 0
+
+    private let dotStride: CGFloat = 32
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -300,7 +288,7 @@ struct TabPagerControl: View {
                     alert.addButton(withTitle: "Delete")
                     alert.addButton(withTitle: "Cancel")
                     alert.alertStyle = .warning
-                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                    guard runRaisedNotchAlert(alert) == .alertFirstButtonReturn else { return }
                 }
                 rememberCurrentSelection()
                 withAnimation(tabSwitchAnimation) {
@@ -318,32 +306,39 @@ struct TabPagerControl: View {
             HStack(spacing: 6) {
                 ForEach(store.tabs) { tab in
                     let isSelected = tab.id == store.activeTabID
-                    Button {
-                        rememberCurrentSelection()
-                        withAnimation(tabSwitchAnimation) {
-                            store.selectTab(tab.id)
+                    let isDragging = draggingID == tab.id
+                    let tabColor = Color(hex: tab.colorHex) ?? .white
+                    Capsule()
+                        .fill(isSelected ? tabColor.opacity(0.9) : tabColor.opacity(0.38))
+                        .frame(width: isSelected ? 20 : 6, height: 6)
+                        .frame(width: 26, height: 24)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.white.opacity(isDragging ? 0.065 : 0))
+                                .padding(.horizontal, isSelected ? -4 : 3)
+                                .padding(.vertical, isSelected ? 3 : 5)
+                        )
+                        .scaleEffect(isDragging ? 1.2 : 1.0)
+                        .offset(x: isDragging ? dragOffset : 0)
+                        .zIndex(isDragging ? 1 : 0)
+                        .animation(tabSwitchAnimation, value: isSelected)
+                        .transaction { txn in
+                            if isDragging { txn.animation = nil }
                         }
-                    } label: {
-                        let tabColor = Color(hex: tab.colorHex) ?? .white
-                        Capsule()
-                            .fill(isSelected ? tabColor.opacity(0.9) : tabColor.opacity(0.38))
-                            .frame(width: isSelected ? 20 : 6, height: 6)
-                            .frame(width: 26, height: 24)
-                            .contentShape(Rectangle())
-                            .matchedGeometryEffect(id: tab.id, in: tabAnimation)
-                            .animation(tabSwitchAnimation, value: isSelected)
-                            .opacity(draggingID == tab.id ? 0.45 : 1.0)
-                    }
-                    .buttonStyle(TabDotButtonStyle(isSelected: isSelected))
-                    .help("Switch tab")
-                    .onDrag {
-                        draggingID = tab.id
-                        return NSItemProvider(object: tab.id.uuidString as NSString)
-                    }
-                    .onDrop(
-                        of: [.text],
-                        delegate: TabDropDelegate(targetTab: tab, store: store, draggingID: $draggingID)
-                    )
+                        .help("Switch tab")
+                        .pointingHandCursor()
+                        .onTapGesture {
+                            rememberCurrentSelection()
+                            withAnimation(tabSwitchAnimation) {
+                                store.selectTab(tab.id)
+                            }
+                        }
+                        .gesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in handleDrag(tab, translation: value.translation.width) }
+                                .onEnded { _ in endDrag() }
+                        )
                 }
             }
             .frame(minWidth: 20, alignment: .center)
@@ -377,6 +372,33 @@ struct TabPagerControl: View {
     private func rememberCurrentSelection() {
         guard let range = editorInteractionState.currentSelectionRange() else { return }
         store.updateSelection(for: store.activeTabID, range: range)
+    }
+
+    private func handleDrag(_ tab: NoteTab, translation: CGFloat) {
+        if draggingID != tab.id {
+            draggingID = tab.id
+            rememberCurrentSelection()
+        }
+        guard let from = store.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+
+        let minOffset = -CGFloat(from) * dotStride
+        let maxOffset = CGFloat(store.tabs.count - 1 - from) * dotStride
+        dragOffset = min(max(translation, minOffset), maxOffset)
+
+        let target = from + Int((dragOffset / dotStride).rounded())
+        if target != from, target >= 0, target < store.tabs.count {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                store.moveTab(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
+            }
+            dragOffset -= CGFloat(target - from) * dotStride
+        }
+    }
+
+    private func endDrag() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            dragOffset = 0
+            draggingID = nil
+        }
     }
 }
 
@@ -429,7 +451,13 @@ struct MarkdownNoteEditor: View {
         imageStore.saveImage(from: pasteboard)
     }
 
+    private var accentColor: NSColor {
+        let hex = store.tabs.first(where: { $0.id == store.activeTabID })?.colorHex
+        return hex.flatMap { NSColor(hex: $0) } ?? NSColor(white: 0.92, alpha: 1)
+    }
+
     private var configuration: MarkdownEditorConfiguration {
+        let accent = accentColor
         let theme = MarkdownEditorTheme(
             bodyText: NSColor(white: 0.92, alpha: 1),
             mutedText: NSColor(white: 0.58, alpha: 1),
@@ -441,7 +469,10 @@ struct MarkdownNoteEditor: View {
             findCurrentMatchHighlight: NSColor.systemYellow,
             latexLightModeText: .white,
             latexDarkModeText: .white,
-            strikethroughColor: NSColor(white: 0.62, alpha: 1)
+            strikethroughColor: NSColor(white: 0.62, alpha: 1),
+            caretColor: accent,
+            selectionColor: accent.withAlphaComponent(0.30),
+            controlAccent: accent
         )
 
         let services = MarkdownEditorServices(images: imageStore)
@@ -449,8 +480,9 @@ struct MarkdownNoteEditor: View {
         return MarkdownEditorConfiguration(
             theme: theme,
             services: services,
-            lists: ListStyle(indentPerLevel: 18, extraLineHeight: 1),
+            lists: ListStyle(indentPerLevel: 40, extraLineHeight: 1),
             imageEmbed: ImageEmbedStyle(fallbackMaxWidth: 440, paragraphSpacing: 6, imageGap: 6),
+            checkbox: CheckboxStyle(minimumExtraSpacing: 8),
             overscroll: OverscrollPolicy(percent: 0, maxPoints: 0, minPoints: 0),
             dragSelection: DragSelectionPolicy(movementThreshold: 8, edgeTriggerDistance: 8, scrollStepPerTick: 4, ticksPerSecond: 30),
             scrollers: .vertical,

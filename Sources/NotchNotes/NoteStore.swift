@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -45,6 +46,19 @@ extension Color {
             red: Double((value >> 16) & 0xFF) / 255,
             green: Double((value >> 8) & 0xFF) / 255,
             blue: Double(value & 0xFF) / 255
+        )
+    }
+}
+
+extension NSColor {
+    convenience init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
+        self.init(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
         )
     }
 }

@@ -14,7 +14,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 238, height: 196)
+    private let contentSize = NSSize(width: 238, height: 206)
 
     init(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
@@ -190,17 +190,17 @@ struct SettingsPopoverView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.72))
 
                 Text("Settings")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Trigger")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.50))
 
                 HStack(spacing: 8) {
@@ -210,9 +210,9 @@ struct SettingsPopoverView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: mode.systemImage)
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                 Text(mode.title)
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
@@ -224,26 +224,33 @@ struct SettingsPopoverView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Confirm delete")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.50))
 
-                Toggle(isOn: $settingsStore.confirmBeforeDelete) {
-                    Text("Ask before clearing or removing a tab")
-                        .font(.system(size: 12, weight: .semibold))
+                HStack(spacing: 10) {
+                    Text("Ask before deleting")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.82))
+
+                    Spacer(minLength: 0)
+
+                    Toggle("", isOn: $settingsStore.confirmBeforeDelete)
+                        .labelsHidden()
+                        .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.72)))
+                        .controlSize(.mini)
                 }
-                .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.72)))
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(.white.opacity(0.055))
                 )
+                .pointingHandCursor()
             }
         }
         .padding(14)
-        .frame(width: 238, height: 196)
+        .frame(width: 238, height: 206)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
@@ -269,6 +276,7 @@ struct PopoverTriggerButtonStyle: ButtonStyle {
                     .fill(.white.opacity(backgroundOpacity(configuration: configuration)))
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .pointingHandCursor()
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 
@@ -284,5 +292,34 @@ struct PopoverTriggerButtonStyle: ButtonStyle {
             return 0.74
         }
         return isSelected ? 0.94 : 0.62
+    }
+}
+
+private extension View {
+    func pointingHandCursor() -> some View {
+        modifier(PointingHandOnHoverModifier())
+    }
+}
+
+private struct PointingHandOnHoverModifier: ViewModifier {
+    @State private var isActive = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                if hovering, !isActive {
+                    NSCursor.pointingHand.push()
+                    isActive = true
+                } else if !hovering, isActive {
+                    NSCursor.pop()
+                    isActive = false
+                }
+            }
+            .onDisappear {
+                if isActive {
+                    NSCursor.pop()
+                    isActive = false
+                }
+            }
     }
 }
