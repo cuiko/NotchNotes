@@ -72,9 +72,16 @@ extension MarkdownStyler {
             }
         }
 
-        let regularItalic = italicFont(in: ctx)
+        let manager = NSFontManager.shared
         let regularBold = boldFont(in: ctx)
-        let regularBoldItalic = boldItalicFont(in: ctx)
+        // The SF system font has no italic face; NSFontManager returns the same
+        // font when it can't italicize, so detect that and slant via obliqueness.
+        let italicConverted = manager.convert(ctx.baseFont, toHaveTrait: .italicFontMask)
+        let italicAvailable = italicConverted.fontName != ctx.baseFont.fontName
+        let regularItalic = italicAvailable ? italicConverted : ctx.baseFont
+        let regularBoldItalic = italicAvailable
+            ? manager.convert(regularBold, toHaveTrait: .italicFontMask)
+            : regularBold
 
         var attrs: [StyledRange] = []
         var i = 0
@@ -92,7 +99,11 @@ extension MarkdownStyler {
             } else {
                 font = headingAwareBoldItalic(in: ctx, contentLocation: i) ?? regularItalic
             }
-            attrs.append((range, [.font: font]))
+            var emphasisAttrs: [NSAttributedString.Key: Any] = [.font: font]
+            if (t & italicBit) != 0, !italicAvailable {
+                emphasisAttrs[.obliqueness] = 0.2
+            }
+            attrs.append((range, emphasisAttrs))
             i = j
         }
         return attrs

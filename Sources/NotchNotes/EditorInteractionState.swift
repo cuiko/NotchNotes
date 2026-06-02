@@ -114,13 +114,13 @@ final class EditorInteractionState: ObservableObject {
 
         switch command {
         case .bold:
-            wrapSelection(prefix: "**", suffix: "**", placeholder: "bold", in: textView)
+            wrapSelection(prefix: "**", suffix: "**", in: textView)
         case .italic:
-            wrapSelection(prefix: "*", suffix: "*", placeholder: "italic", in: textView)
+            wrapSelection(prefix: "*", suffix: "*", in: textView)
         case .strikethrough:
-            wrapSelection(prefix: "~~", suffix: "~~", placeholder: "strikethrough", in: textView)
+            wrapSelection(prefix: "~~", suffix: "~~", in: textView)
         case .inlineCode:
-            wrapSelection(prefix: "`", suffix: "`", placeholder: "code", in: textView)
+            wrapSelection(prefix: "`", suffix: "`", in: textView)
         case .link:
             applyLink(in: textView)
         case .quote:
@@ -206,13 +206,20 @@ final class EditorInteractionState: ObservableObject {
         applySelection(pendingSelectionRange, reveal: false)
     }
 
-    private func wrapSelection(prefix: String, suffix: String, placeholder: String, in textView: NSTextView) {
+    private func wrapSelection(prefix: String, suffix: String, in textView: NSTextView) {
         let range = safeSelectedRange(in: textView)
         let selectedText = (textView.string as NSString).substring(with: range)
-        let content = selectedText.isEmpty ? placeholder : selectedText
-        let replacement = prefix + content + suffix
-        let selection = NSRange(location: range.location + prefix.utf16.count, length: content.utf16.count)
-        replaceText(in: textView, range: range, with: replacement, selectionAfter: selection)
+        let prefixLength = (prefix as NSString).length
+
+        if selectedText.isEmpty {
+            let replacement = prefix + suffix
+            let caret = NSRange(location: range.location + prefixLength, length: 0)
+            replaceText(in: textView, range: range, with: replacement, selectionAfter: caret)
+        } else {
+            let replacement = prefix + selectedText + suffix
+            let selection = NSRange(location: range.location + prefixLength, length: (selectedText as NSString).length)
+            replaceText(in: textView, range: range, with: replacement, selectionAfter: selection)
+        }
     }
 
     private func applyLink(in textView: NSTextView) {
@@ -255,7 +262,9 @@ final class EditorInteractionState: ObservableObject {
             .map { index, line in prefixForLine(index) + line }
             .joined(separator: "\n")
         let replacement = replacementBody + (hasTrailingNewline ? "\n" : "")
-        let selection = NSRange(location: lineRange.location, length: replacement.utf16.count)
+        let trailingNewlineLength = hasTrailingNewline ? 1 : 0
+        let caretLocation = lineRange.location + (replacement as NSString).length - trailingNewlineLength
+        let selection = NSRange(location: caretLocation, length: 0)
         replaceText(in: textView, range: lineRange, with: replacement, selectionAfter: selection)
     }
 

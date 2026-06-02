@@ -74,6 +74,15 @@ public struct MarkdownEditorTheme: Sendable {
     /// (e.g. completed task list items, horizontal rules).
     public var strikethroughColor: NSColor
 
+    // MARK: Caret / selection
+
+    /// Color of the typing caret (insertion point).
+    public var caretColor: NSColor
+    /// Background color used to highlight selected text.
+    public var selectionColor: NSColor
+    /// Accent fill color for colored controls (e.g. the checked task checkbox).
+    public var controlAccent: NSColor
+
     // MARK: Init
 
     public init(
@@ -87,7 +96,10 @@ public struct MarkdownEditorTheme: Sendable {
         findCurrentMatchHighlight: NSColor = .systemYellow,
         latexLightModeText: NSColor = .black,
         latexDarkModeText: NSColor = .white,
-        strikethroughColor: NSColor = .labelColor
+        strikethroughColor: NSColor = .labelColor,
+        caretColor: NSColor = .labelColor,
+        selectionColor: NSColor = .selectedTextBackgroundColor,
+        controlAccent: NSColor = NSColor(calibratedRed: 0.69, green: 0.93, blue: 0.81, alpha: 1.0)
     ) {
         self.bodyText = bodyText
         self.mutedText = mutedText
@@ -100,6 +112,9 @@ public struct MarkdownEditorTheme: Sendable {
         self.latexLightModeText = latexLightModeText
         self.latexDarkModeText = latexDarkModeText
         self.strikethroughColor = strikethroughColor
+        self.caretColor = caretColor
+        self.selectionColor = selectionColor
+        self.controlAccent = controlAccent
     }
 
     /// System-native palette built from `NSColor` dynamic system colors.

@@ -48,9 +48,11 @@ extension MarkdownStyler {
         var attrs: [StyledRange] = []
         for (idx, token) in ctx.tokens.enumerated() where token.kind == .inlineCode {
             let isActive = ctx.activeTokenIndices.contains(idx)
+            let accent = ctx.configuration.theme.controlAccent
             attrs.append((token.contentRange, [
-                .font: ctx.codeFont,
-                .backgroundColor: ctx.codeBackgroundColor
+                .font: ctx.baseFont,
+                .foregroundColor: accent,
+                .backgroundColor: accent.withAlphaComponent(0.16)
             ]))
             let inlineMarkerAttributes: [NSAttributedString.Key: Any] = isActive
                 ? [

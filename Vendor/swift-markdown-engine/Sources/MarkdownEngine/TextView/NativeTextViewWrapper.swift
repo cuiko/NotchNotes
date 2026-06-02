@@ -138,7 +138,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.maxOverscrollPoints = configuration.overscroll.maxPoints
         textView.minOverscrollPoints = configuration.overscroll.minPoints
         context.coordinator.configuration = configuration
-        textView.insertionPointColor = configuration.theme.bodyText
+        textView.insertionPointColor = configuration.theme.caretColor
+        textView.selectedTextAttributes = [.backgroundColor: configuration.theme.selectionColor]
         textView.isEditable = isEditable
         textView.isSelectable = isEditable
         textView.isRichText = true
@@ -265,7 +266,18 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         }
         textView.isEditable = isEditable
         textView.isSelectable = isEditable
-        textView.insertionPointColor = isEditable ? context.coordinator.configuration.theme.bodyText : .clear
+        if context.coordinator.configuration.theme.caretColor != configuration.theme.caretColor
+            || context.coordinator.configuration.theme.selectionColor != configuration.theme.selectionColor
+            || context.coordinator.configuration.theme.controlAccent != configuration.theme.controlAccent {
+            context.coordinator.configuration.theme.caretColor = configuration.theme.caretColor
+            context.coordinator.configuration.theme.selectionColor = configuration.theme.selectionColor
+            context.coordinator.configuration.theme.controlAccent = configuration.theme.controlAccent
+            (nsView.documentView as? NativeTextView)?.configuration.theme.caretColor = configuration.theme.caretColor
+            (nsView.documentView as? NativeTextView)?.configuration.theme.selectionColor = configuration.theme.selectionColor
+            (nsView.documentView as? NativeTextView)?.configuration.theme.controlAccent = configuration.theme.controlAccent
+            textView.selectedTextAttributes = [.backgroundColor: configuration.theme.selectionColor]
+        }
+        textView.insertionPointColor = isEditable ? context.coordinator.configuration.theme.caretColor : .clear
         let fontChanged = (context.coordinator.fontName != fontName) || (context.coordinator.fontSize != fontSize)
         if let pendingInlineReplacement {
             if pendingInlineReplacement.documentId == documentId,
