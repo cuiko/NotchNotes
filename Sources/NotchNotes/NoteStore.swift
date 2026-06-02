@@ -9,6 +9,10 @@ private let tabColorPalette: [String] = [
     "#E17055", "#00CEC9",
 ]
 
+private func randomTabColor() -> String {
+    tabColorPalette.randomElement() ?? "#FF6B6B"
+}
+
 struct NoteTab: Identifiable, Codable, Equatable {
     var id: UUID
     var text: String
@@ -23,7 +27,7 @@ struct NoteTab: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         selectionLocation = 0
         selectionLength = 0
-        colorHex = tabColorPalette.randomElement()!
+        colorHex = randomTabColor()
     }
 
     init(from decoder: Decoder) throws {
@@ -34,7 +38,7 @@ struct NoteTab: Identifiable, Codable, Equatable {
         selectionLocation = try container.decodeIfPresent(Int.self, forKey: .selectionLocation)
         selectionLength = try container.decodeIfPresent(Int.self, forKey: .selectionLength)
         colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
-            ?? tabColorPalette.randomElement()!
+            ?? randomTabColor()
     }
 }
 

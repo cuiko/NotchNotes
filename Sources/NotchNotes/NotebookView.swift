@@ -275,7 +275,9 @@ struct TabPagerControl: View {
     @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
 
-    private let dotStride: CGFloat = 32
+    private let dotCellWidth: CGFloat = 26
+    private let dotSpacing: CGFloat = 6
+    private var dotStride: CGFloat { dotCellWidth + dotSpacing }
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -303,7 +305,7 @@ struct TabPagerControl: View {
             .disabled(store.tabs.count <= 1)
             .help("Remove current tab")
 
-            HStack(spacing: 6) {
+            HStack(spacing: dotSpacing) {
                 ForEach(store.tabs) { tab in
                     let isSelected = tab.id == store.activeTabID
                     let isDragging = draggingID == tab.id
@@ -311,7 +313,7 @@ struct TabPagerControl: View {
                     Capsule()
                         .fill(isSelected ? tabColor.opacity(0.9) : tabColor.opacity(0.38))
                         .frame(width: isSelected ? 20 : 6, height: 6)
-                        .frame(width: 26, height: 24)
+                        .frame(width: dotCellWidth, height: 24)
                         .contentShape(Rectangle())
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
