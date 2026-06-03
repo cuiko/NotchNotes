@@ -4,7 +4,7 @@ All notable changes this fork makes on top of the original NotchNotes are
 documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.0] - 2026-06-03
 
 ### Added
 - **Tab context menu** — right-click a tab to delete it. This replaces the old
