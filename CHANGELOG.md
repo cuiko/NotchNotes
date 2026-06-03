@@ -4,7 +4,12 @@ All notable changes this fork makes on top of the original NotchNotes are
 documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v0.3.0] - 2026-06-03
+This fork builds on [oil-oil/NotchNotes](https://github.com/oil-oil/NotchNotes).
+Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
+the baseline — the notch panel, live Markdown editing, image paste, local note
+persistence, and the settings popover — which the versions below extend.
+
+## [v0.3.0]
 
 ### Added
 - **Tab context menu** — right-click a tab to delete it. This replaces the old
@@ -25,7 +30,7 @@ documented here. The format is based on
 - **Italic rendering** — italic now slants even with the SF system font, via an
   oblique-slant font fallback.
 
-## [v0.2.0] - 2026-06-02
+## [v0.2.0]
 
 ### Tabs & UI
 - **Per-tab accent color** — every note tab gets a persisted random color that
