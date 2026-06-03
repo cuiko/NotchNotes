@@ -116,14 +116,14 @@ final class EditorInteractionState: ObservableObject {
         scheduleSelectionRestore(range: range, generation: generation, remainingPasses: 4, searchingIn: rootView)
     }
 
-    func requestLayoutRefresh(searchingIn rootView: NSView? = nil, resetScroll: Bool = false) {
+    func requestLayoutRefresh(searchingIn rootView: NSView? = nil, resetScroll: Bool = false, revealSelection: Bool = false) {
         if let rootView {
             refreshTextView(searchingIn: rootView)
         }
 
         layoutRefreshGeneration += 1
         let generation = layoutRefreshGeneration
-        scheduleLayoutRefresh(generation: generation, remainingPasses: 4, searchingIn: rootView, resetScroll: resetScroll)
+        scheduleLayoutRefresh(generation: generation, remainingPasses: 4, searchingIn: rootView, resetScroll: resetScroll, revealSelection: revealSelection)
     }
 
     func currentSelectionRange() -> NSRange? {
@@ -157,7 +157,7 @@ final class EditorInteractionState: ObservableObject {
             prefixSelectedLines(with: "- [ ] ", in: textView)
         }
 
-        requestLayoutRefresh()
+        requestLayoutRefresh(revealSelection: true)
     }
 
     func handleMouseEvent(_ event: NSEvent, searchingIn rootView: NSView?) {
@@ -355,7 +355,8 @@ final class EditorInteractionState: ObservableObject {
         generation: Int,
         remainingPasses: Int,
         searchingIn rootView: NSView?,
-        resetScroll: Bool
+        resetScroll: Bool,
+        revealSelection: Bool
     ) {
         let delay: TimeInterval = remainingPasses == 4 ? 0.02 : 0.06
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak rootView] in
@@ -363,19 +364,21 @@ final class EditorInteractionState: ObservableObject {
             if let rootView {
                 self.refreshTextView(searchingIn: rootView)
             }
-            self.applyLayoutRefresh(resetScroll: resetScroll && remainingPasses == 4)
+            self.applyLayoutRefresh(resetScroll: resetScroll && remainingPasses == 4,
+                                    revealSelection: revealSelection)
 
             guard remainingPasses > 1 else { return }
             self.scheduleLayoutRefresh(
                 generation: generation,
                 remainingPasses: remainingPasses - 1,
                 searchingIn: rootView,
-                resetScroll: false
+                resetScroll: false,
+                revealSelection: revealSelection
             )
         }
     }
 
-    private func applyLayoutRefresh(resetScroll: Bool) {
+    private func applyLayoutRefresh(resetScroll: Bool, revealSelection: Bool = false) {
         guard let textView else { return }
 
         textView.layoutSubtreeIfNeeded()
@@ -395,6 +398,12 @@ final class EditorInteractionState: ObservableObject {
             }
             scrollView.layoutSubtreeIfNeeded()
             scrollView.contentView.needsDisplay = true
+        }
+
+        // Keep the caret/selection visible after a non-typing edit (toolbar
+        // command, etc.) — these don't auto-scroll the way typing does.
+        if revealSelection {
+            textView.scrollRangeToVisible(safeSelectedRange(in: textView))
         }
 
         textView.needsDisplay = true
