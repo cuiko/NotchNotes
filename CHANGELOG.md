@@ -9,19 +9,23 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
-## [v0.3.0]
+## v0.3.0
 
 ### Added
-- **Tab context menu** — right-click a tab to delete it. This replaces the old
-  minus button and leaves room to grow per-tab actions later.
+- **Tab context menu** — right-click a tab to delete it, leaving room to grow
+  per-tab actions later.
 - **Tab hover titles** — hovering a tab dot shows that tab's first line of text.
-- **In-panel delete confirmation** — clearing a note or deleting a tab now
-  confirms with a card rendered inside the notch drawer instead of a separate
-  alert window, so moving the pointer to the buttons no longer collapses the
-  panel out from under the dialog.
 - **Smart line start** — `Cmd-Left` / `Home` jumps to the content start after a
-  list, to-do, or blockquote marker; a second press goes to the true line
-  start. `Shift` extends the selection to the same target.
+  list, to-do, or blockquote marker; a second press goes to the true line start.
+  `Shift` extends the selection to the same target.
+
+### Changed
+- **Delete confirmation** now renders as a card inside the notch drawer instead
+  of a separate alert window, so moving the pointer to its buttons no longer
+  collapses the panel out from under the dialog.
+
+### Removed
+- The minus (remove-tab) toolbar button, replaced by the tab context menu.
 
 ### Fixed
 - **Blockquote vertical centering** — quote text is centered in the callout box,
@@ -30,19 +34,14 @@ persistence, and the settings popover — which the versions below extend.
 - **Italic rendering** — italic now slants even with the SF system font, via an
   oblique-slant font fallback.
 
-## [v0.2.0]
+## v0.2.0
 
-### Tabs & UI
+### Added
 - **Per-tab accent color** — every note tab gets a persisted random color that
   also tints the editor caret, text selection, checkboxes, and inline code.
-- **Drag to reorder tabs** — drag a tab dot to reorder; the dragged dot follows
-  the cursor while the others make room, and the order is persisted.
+- **Drag to reorder tabs** — drag a tab dot to reorder; the order is persisted.
 - **Delete confirmation** — clearing a note or removing a tab asks for
   confirmation; toggle it in Settings.
-- **Settings polish** — larger fonts, a right-aligned switch, and consistent row
-  heights in the settings popover.
-
-### Markdown rendering
 - **Strikethrough** — `~~text~~` renders with a strike line and combines
   correctly with bold/italic.
 - **Inline code** — `` `code` `` uses the tab accent color at body font size
@@ -51,32 +50,36 @@ persistence, and the settings popover — which the versions below extend.
   and a faint background, continuous across consecutive lines.
 - **Horizontal rule** — `---` renders as a thin full-width drawn line instead of
   a row of dashes; the raw text is revealed only while the caret is on the line.
-
-### Lists & to-dos
-- **Nesting alignment** — a nested item's marker/checkbox aligns under the parent
-  item's text.
-- **Consistent checkbox spacing** — the gap between the checkbox and its text
-  stays the same whether checked, unchecked, or empty.
-- **Reliable checkbox toggle** with a pointing-hand cursor over checkboxes.
-- **Smart Backspace** — Backspace on an empty list item outdents it (or removes
-  the marker) instead of leaving a stray indent.
 - **Block indentation** — select multiple lines and press `Tab` / `Shift-Tab` to
   indent / outdent them together.
+- **Smart Backspace** — Backspace on an empty list item outdents it (or removes
+  the marker) instead of leaving a stray indent.
 
-## [v0.1.1]
+### Changed
+- **Settings popover polish** — larger fonts, a right-aligned switch, and
+  consistent row heights.
+- **Nested list alignment** — a nested item's marker/checkbox aligns under the
+  parent item's text.
+- **Consistent checkbox spacing** — the gap between the checkbox and its text
+  stays the same whether checked, unchecked, or empty.
+
+### Fixed
+- **Reliable checkbox toggle**, with a pointing-hand cursor over checkboxes.
+
+## v0.1.1
 
 From the upstream project —
 [release notes](https://github.com/oil-oil/NotchNotes/releases/tag/v0.1.1).
+
+### Changed
+- Update the bundle identifier to `io.github.oiloil.NotchNotes`.
 
 ### Fixed
 - Re-sign the full `.app` bundle after writing `Info.plist` and resources,
   fixing a structurally invalid signature on the downloaded app; the packaged
   app is now verified with `codesign` during packaging.
 
-### Changed
-- Update the bundle identifier to `io.github.oiloil.NotchNotes`.
-
-## [v0.1.0]
+## v0.1.0
 
 Initial public build, from the upstream project —
 [release notes](https://github.com/oil-oil/NotchNotes/releases/tag/v0.1.0).
