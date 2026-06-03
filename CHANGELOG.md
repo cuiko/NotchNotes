@@ -9,32 +9,46 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
-## v0.3.0
+## v0.2.1
 
 ### Added
+- **Code block box** — fenced code blocks render on a visibly lighter
+  background, separated from neighboring content, with the fence's language
+  (```` ```js ````) shown as a label at the top-left.
+- **Tab context menu** — right-click a tab for **Delete** and **Clear
+  Completed** (removes finished to-dos, keeping a done parent that still has an
+  open child).
+- **Scrollable tab strip** — with many tabs the strip scrolls horizontally
+  instead of overflowing.
+- **Tab hover titles** — hovering a tab dot shows that tab's first line of text.
+- **Pin on top** — a pin button keeps the drawer open and ignores the hover-out
+  auto-collapse.
+- **Reclaim images on delete** — deleting a tab removes the image assets it
+  referenced, unless another tab still uses them.
+- **Hover-to-delete image embeds** — hovering a rendered image shows a trash
+  button that removes the embed (the stored asset is kept).
 - **Paste URL over selection** — pasting a bare URL while text is selected wraps
   it as a Markdown link, `[selection](url)`.
-- **Tab context menu** — right-click a tab to delete it, leaving room to grow
-  per-tab actions later.
-- **Tab hover titles** — hovering a tab dot shows that tab's first line of text.
 - **Smart line start** — `Cmd-Left` / `Home` jumps to the content start after a
   list, to-do, or blockquote marker; a second press goes to the true line start.
   `Shift` extends the selection to the same target.
 
 ### Changed
-- **Delete confirmation** now renders as a card inside the notch drawer instead
-  of a separate alert window, so moving the pointer to its buttons no longer
-  collapses the panel out from under the dialog.
+- **Delete confirmation** renders as an in-panel card instead of a separate
+  alert window, so it no longer collapses the panel out from under the dialog.
+- **Confirm-delete setting** toggles by clicking its label, with a custom switch.
+- Reduced blockquote callout padding and tightened the toolbar icon spacing.
 
 ### Removed
 - The minus (remove-tab) toolbar button, replaced by the tab context menu.
 
 ### Fixed
-- **Blockquote vertical centering** — quote text is centered in the callout box,
-  and the box height stays consistent while typing, after a line break, and when
-  the quote is the first line of the document.
-- **Italic rendering** — italic now slants even with the SF system font, via an
-  oblique-slant font fallback.
+- **Blockquote vertical centering** — quote text is centered in the callout box
+  and stays consistent while typing, after a line break, and on the first line.
+- **Italic rendering** — italic now slants even with the SF system font.
+- Toolbar commands scroll the caret back into view in a long note.
+- Selection stays visible over code blocks and checkboxes.
+- An image embed's preview sits below its source even when the source wraps.
 
 ## v0.2.0
 
