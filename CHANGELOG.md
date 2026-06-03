@@ -12,6 +12,8 @@ persistence, and the settings popover — which the versions below extend.
 ## v0.3.0
 
 ### Added
+- **Paste URL over selection** — pasting a bare URL while text is selected wraps
+  it as a Markdown link, `[selection](url)`.
 - **Tab context menu** — right-click a tab to delete it, leaving room to grow
   per-tab actions later.
 - **Tab hover titles** — hovering a tab dot shows that tab's first line of text.
