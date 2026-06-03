@@ -10,8 +10,8 @@ See [CHANGELOG](CHANGELOG.md).
 
 ## Download
 
-- [Download the latest release](https://github.com/oil-oil/NotchNotes/releases/latest)
-- [Open the homepage](https://oil-oil.github.io/NotchNotes/)
+- [Download the latest release](https://github.com/cuiko/NotchNotes/releases/latest)
+- [Open the homepage](https://cuiko.github.io/NotchNotes/)
 
 After downloading, unzip the app, move it to Applications, then right-click and choose Open on the first launch.
 
