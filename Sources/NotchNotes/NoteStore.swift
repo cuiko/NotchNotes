@@ -129,6 +129,15 @@ final class NoteStore: ObservableObject {
         removeTab(activeTabID)
     }
 
+    func cleanFinishedTodos(for id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let cleaned = Self.removingFinishedTodos(from: tabs[index].text)
+        guard cleaned != tabs[index].text else { return }
+        tabs[index].text = cleaned
+        clampSelection(for: id)
+        save()
+    }
+
     func removeTab(_ id: UUID) {
         guard tabs.count > 1, let removedIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
         let wasActive = tabs[removedIndex].id == activeTabID
@@ -196,6 +205,63 @@ final class NoteStore: ObservableObject {
         }
         UserDefaults.standard.set(activeTabID.uuidString, forKey: Self.activeTabIDKey)
         UserDefaults.standard.set(text, forKey: Self.legacyTextKey)
+    }
+
+    private static let checkboxLineRegex = try! NSRegularExpression(
+        pattern: #"^([ \t]*)([-*+•]|\d+\.)[ \t]+\[([ xX])\]"#
+    )
+
+    /// Removes checked todo items. A checked item is dropped together with its
+    /// whole sub-tree, but only when that sub-tree contains no still-unchecked
+    /// todo — a completed parent that still has an open child is kept so the
+    /// child isn't orphaned.
+    static func removingFinishedTodos(from text: String) -> String {
+        let lines = (text as NSString).components(separatedBy: "\n")
+
+        struct LineInfo { let indent: Int; let isTodo: Bool; let isChecked: Bool }
+        func info(for line: String) -> LineInfo {
+            let ns = line as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            if let match = checkboxLineRegex.firstMatch(in: line, range: range) {
+                let mark = ns.substring(with: match.range(at: 3))
+                return LineInfo(indent: match.range(at: 1).length, isTodo: true,
+                                isChecked: mark.caseInsensitiveCompare("x") == .orderedSame)
+            }
+            let indent = line.prefix { $0 == " " || $0 == "\t" }.count
+            return LineInfo(indent: indent, isTodo: false, isChecked: false)
+        }
+        let infos = lines.map(info)
+
+        // Sub-tree of `i`: following lines more indented than it, with any
+        // blank lines folded in so they leave with the item they trail.
+        func subtreeEnd(of i: Int) -> Int {
+            var j = i + 1
+            while j < lines.count {
+                if lines[j].trimmingCharacters(in: .whitespaces).isEmpty {
+                    j += 1
+                    continue
+                }
+                if infos[j].indent > infos[i].indent { j += 1 } else { break }
+            }
+            return j
+        }
+
+        var result: [String] = []
+        var i = 0
+        while i < lines.count {
+            let line = infos[i]
+            if line.isTodo, line.isChecked {
+                let end = subtreeEnd(of: i)
+                let hasOpenDescendant = (i + 1 ..< end).contains { infos[$0].isTodo && !infos[$0].isChecked }
+                if !hasOpenDescendant {
+                    i = end
+                    continue
+                }
+            }
+            result.append(lines[i])
+            i += 1
+        }
+        return result.joined(separator: "\n")
     }
 
     private static func loadStoredTabs() -> [NoteTab] {

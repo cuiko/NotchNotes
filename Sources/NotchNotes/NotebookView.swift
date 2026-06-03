@@ -431,6 +431,9 @@ struct TabPagerControl: View {
                                 .onEnded { _ in endDrag() }
                         )
                         .contextMenu {
+                            Button("Clear Completed") {
+                                cleanFinishedItems(tab.id)
+                            }
                             Button("Delete", role: .destructive) {
                                 requestDeleteTab(tab.id)
                             }
@@ -532,6 +535,31 @@ struct TabPagerControl: View {
         rememberCurrentSelection()
         withAnimation(tabSwitchAnimation) {
             store.removeTab(id)
+        }
+    }
+
+    private func cleanFinishedItems(_ id: UUID) {
+        if settingsStore.confirmBeforeDelete {
+            requestConfirmation(
+                ConfirmationRequest(
+                    title: "Clear completed?",
+                    message: "Completed to-dos in this tab will be removed.",
+                    confirmTitle: "Clear",
+                    onConfirm: { performCleanFinished(id) }
+                )
+            )
+        } else {
+            performCleanFinished(id)
+        }
+    }
+
+    private func performCleanFinished(_ id: UUID) {
+        if id == store.activeTabID {
+            rememberCurrentSelection()
+        }
+        store.cleanFinishedTodos(for: id)
+        if id == store.activeTabID {
+            editorInteractionState.requestLayoutRefresh(resetScroll: false)
         }
     }
 
