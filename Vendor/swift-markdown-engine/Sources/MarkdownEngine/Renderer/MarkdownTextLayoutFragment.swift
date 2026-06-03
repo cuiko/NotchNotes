@@ -26,6 +26,11 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     /// Inner padding above/below the text inside a blockquote callout box.
     static let blockquoteInternalPad: CGFloat = 5
 
+    /// Filled padding between a code block's content and the box edge. The code
+    /// paragraph's outer spacing carries this plus the (unfilled) outer margin;
+    /// only the margin is kept out of the fill.
+    static let codeBlockInnerPad: CGFloat = 6
+
     // MARK: - FB15131180
 
     /// Maps to TextKit-2's private `extraLineFragmentAttributes` selector so we can pin the trailing extra-line metrics to body font; otherwise a trailing heading paragraph inflates `usageBoundsForTextContainer` by ~30pt when the caret enters it. Pattern from STTextView.
@@ -165,12 +170,28 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             effectiveHeight -= lastLF.typographicBounds.height
         }
 
+        // Keep the outer paragraph spacing (the block's top/bottom margin) out of
+        // the fill so it reads as a gap to neighboring content. Interior code
+        // lines carry no spacing, so their fragments still abut into one box.
+        let prevIsCode = range.location > 0
+            && (ts.attribute(.backgroundColor, at: range.location - 1, effectiveRange: nil) as? NSColor)
+                .map { isCodeBlockBackgroundColor($0) } ?? false
+        let nextIsCode = NSMaxRange(range) < ts.length
+            && (ts.attribute(.backgroundColor, at: NSMaxRange(range), effectiveRange: nil) as? NSColor)
+                .map { isCodeBlockBackgroundColor($0) } ?? false
+        let paragraph = ts.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+        let topInset = prevIsCode ? 0 : max(0, (paragraph?.paragraphSpacingBefore ?? 0) - Self.codeBlockInnerPad)
+        let bottomInset = nextIsCode ? 0 : max(0, (paragraph?.paragraphSpacing ?? 0) - Self.codeBlockInnerPad)
+
         let scale = textLayoutManager?.textContainer?.textView?.window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        let rawY = point.y
-        let rawMaxY = point.y + effectiveHeight
+        let rawY = point.y + topInset
+        let rawMaxY = point.y + effectiveHeight - bottomInset
         let snappedY = floor(rawY * scale) / scale
         let snappedMaxY = ceil(rawMaxY * scale) / scale
+        // A collapsed fence line is shorter than the outer margin; skip it so
+        // the margin reads as an empty gap instead of a sliver of fill.
+        guard snappedMaxY > snappedY else { return }
 
         // Draw full-width background, clipping out any active selection rects
         // so the system's blue selection highlight remains visible inside code blocks.

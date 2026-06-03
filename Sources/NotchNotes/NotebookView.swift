@@ -682,11 +682,15 @@ struct MarkdownNoteEditor: View {
             controlAccent: accent
         )
 
-        let services = MarkdownEditorServices(images: imageStore)
+        let services = MarkdownEditorServices(
+            images: imageStore,
+            syntaxHighlighter: CodeBlockSyntaxHighlighter()
+        )
 
         return MarkdownEditorConfiguration(
             theme: theme,
             services: services,
+            codeBlock: CodeBlockStyle(paragraphSpacing: 8),
             lists: ListStyle(indentPerLevel: 40, extraLineHeight: 1),
             imageEmbed: ImageEmbedStyle(fallbackMaxWidth: 440, paragraphSpacing: 6, imageGap: 6),
             checkbox: CheckboxStyle(minimumExtraSpacing: 8),
@@ -696,6 +700,22 @@ struct MarkdownNoteEditor: View {
             textInsets: TextInsets(horizontal: 12, vertical: 12)
         )
     }
+}
+
+/// Gives fenced code blocks a visible background that stands out from the dark
+/// editor background. No language highlighting — just a distinguishable box.
+struct CodeBlockSyntaxHighlighter: SyntaxHighlighter {
+    func codeFont(size: CGFloat) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    func backgroundColor() -> NSColor {
+        NSColor(srgbRed: 0.16, green: 0.16, blue: 0.19, alpha: 1)
+    }
+
+    func highlight(code: String, language: String?) -> NSAttributedString? { nil }
+
+    var appearanceDidChangeNotification: Notification.Name? { nil }
 }
 
 struct TopAttachedRoundedShape: Shape {
