@@ -97,6 +97,10 @@ final class EditorInteractionState: ObservableObject {
         retryFocus(searchingIn: rootView)
     }
 
+    func setCursorSuppressed(_ suppressed: Bool) {
+        textView?.setMarkdownEditorCursorSuppressed(suppressed)
+    }
+
     func resetSelectionToDocumentStart(searchingIn rootView: NSView? = nil) {
         restoreSelection(NSRange(location: 0, length: 0), searchingIn: rootView)
     }

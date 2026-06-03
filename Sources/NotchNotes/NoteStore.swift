@@ -72,6 +72,11 @@ final class NoteStore: ObservableObject {
     @Published private(set) var tabs: [NoteTab]
     @Published private(set) var activeTabID: UUID
 
+    /// Called after a tab is removed with the text of every remaining tab, so
+    /// image assets the deleted note referenced can be garbage-collected when
+    /// no other note still uses them.
+    var imagePruner: (([String]) -> Void)?
+
     private static let legacyTextKey = "notchNotes.text"
     private static let tabsKey = "notchNotes.tabs.v1"
     private static let activeTabIDKey = "notchNotes.activeTabID"
@@ -133,6 +138,7 @@ final class NoteStore: ObservableObject {
             activeTabID = tabs[nextIndex].id
         }
         save()
+        imagePruner?(tabs.map { $0.text })
     }
 
     func selectTab(_ id: UUID) {

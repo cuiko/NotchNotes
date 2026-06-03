@@ -6,6 +6,8 @@ import SwiftUI
 final class DrawerState: ObservableObject {
     @Published var isExpanded = false
     @Published var revealProgress: CGFloat = 0
+    /// When pinned, the drawer stays open and ignores the hover-out auto-collapse.
+    @Published var isPinned = false
 }
 
 struct NotebookView: View {
@@ -25,6 +27,7 @@ struct NotebookView: View {
         }
         .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
         .onChange(of: confirmation != nil) { _, presenting in
+            editorInteractionState.setCursorSuppressed(presenting)
             if presenting {
                 editorInteractionState.beginPresentingDialog()
             } else {
@@ -107,6 +110,15 @@ struct NotebookView: View {
                     }
                     .buttonStyle(DarkIconButtonStyle())
                     .help("Clear")
+
+                    Button {
+                        drawerState.isPinned.toggle()
+                    } label: {
+                        Image(systemName: drawerState.isPinned ? "pin.fill" : "pin")
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(DarkIconButtonStyle())
+                    .help(drawerState.isPinned ? "Unpin from top" : "Pin on top")
 
                     Button(action: onOpenSettings) {
                         Image(systemName: "gearshape")
@@ -322,8 +334,10 @@ private struct ConfirmationOverlay: View {
                 HStack(spacing: 10) {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(ConfirmationButtonStyle(destructive: false))
+                        .pointingHandCursor()
                     Button(request.confirmTitle, action: onConfirm)
                         .buttonStyle(ConfirmationButtonStyle(destructive: true))
+                        .pointingHandCursor()
                 }
             }
             .padding(18)
@@ -334,6 +348,7 @@ private struct ConfirmationOverlay: View {
             )
             .shadow(color: .black.opacity(0.45), radius: 24, x: 0, y: 14)
         }
+        .hoverCursor(.arrow)
     }
 }
 
@@ -804,6 +819,34 @@ private struct RoundedHoverButtonBody: View {
 private extension View {
     func pointingHandCursor(isEnabled: Bool = true) -> some View {
         modifier(PointingHandCursorModifier(isEnabled: isEnabled))
+    }
+
+    func hoverCursor(_ cursor: NSCursor) -> some View {
+        modifier(HoverCursorModifier(cursor: cursor))
+    }
+}
+
+private struct HoverCursorModifier: ViewModifier {
+    let cursor: NSCursor
+    @State private var isActive = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                if hovering, !isActive {
+                    cursor.push()
+                    isActive = true
+                } else if !hovering, isActive {
+                    NSCursor.pop()
+                    isActive = false
+                }
+            }
+            .onDisappear {
+                if isActive {
+                    NSCursor.pop()
+                    isActive = false
+                }
+            }
     }
 }
 

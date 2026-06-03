@@ -52,6 +52,34 @@ final class LocalImageStore: EmbeddedImageFileProvider, @unchecked Sendable {
         )
     }
 
+    /// Deletes stored images no longer referenced by any of `texts`. Every
+    /// app-created embed carries the asset's UUID (`![[name|UUID]]`), so a
+    /// record whose id appears in no remaining note is safe to remove. Only the
+    /// stored copy is deleted — never the user's original source file.
+    func pruneImages(referencedIn texts: [String]) {
+        lock.lock()
+        let currentRecords = records
+        lock.unlock()
+
+        let orphanIDs = currentRecords.keys.filter { id in
+            !texts.contains { $0.contains(id) }
+        }
+        guard !orphanIDs.isEmpty else { return }
+
+        lock.lock()
+        for id in orphanIDs {
+            if let record = records[id] {
+                let url = directoryURL.appendingPathComponent(record.storedFilename)
+                try? FileManager.default.removeItem(at: url)
+            }
+            records[id] = nil
+        }
+        let recordsToSave = records
+        version += 1
+        lock.unlock()
+        saveRecords(recordsToSave)
+    }
+
     func image(for reference: EmbeddedImageRequest) -> NSImage? {
         let candidateNames = [reference.id, reference.name].compactMap { $0 }
 

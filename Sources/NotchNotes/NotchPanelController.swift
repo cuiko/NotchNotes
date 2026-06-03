@@ -59,6 +59,9 @@ final class NotchPanelController: NSObject {
         )
 
         super.init()
+        store.imagePruner = { [imageStore] remainingTexts in
+            imageStore.pruneImages(referencedIn: remainingTexts)
+        }
         configurePanel(hotPanel)
         configurePanel(drawerPanel)
         rebuildContent()
@@ -279,6 +282,11 @@ final class NotchPanelController: NSObject {
 
     private func handleMouseLocation(_ point: NSPoint) {
         if isExpanded {
+            if drawerState.isPinned {
+                cancelCollapse()
+                return
+            }
+
             if activeMenuTrackingCount > 0 {
                 cancelCollapse()
                 return
@@ -310,12 +318,14 @@ final class NotchPanelController: NSObject {
     private func scheduleCollapse() {
         guard collapseTask == nil else { return }
         guard activeMenuTrackingCount == 0 else { return }
+        guard !drawerState.isPinned else { return }
         guard !editorInteractionState.shouldKeepDrawerExpanded else { return }
 
         let task = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.collapseTask = nil
             guard self.activeMenuTrackingCount == 0 else { return }
+            guard !self.drawerState.isPinned else { return }
             guard !self.editorInteractionState.isDraggingSelection else { return }
             guard !self.editorInteractionState.shouldKeepDrawerExpanded else { return }
             guard !self.isPointInExpandedStayRegion(NSEvent.mouseLocation) else { return }
