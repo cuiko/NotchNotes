@@ -23,6 +23,9 @@ extension NSAttributedString.Key {
 
 final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
+    /// Inner padding above/below the text inside a blockquote callout box.
+    static let blockquoteInternalPad: CGFloat = 9
+
     // MARK: - FB15131180
 
     /// Maps to TextKit-2's private `extraLineFragmentAttributes` selector so we can pin the trailing extra-line metrics to body font; otherwise a trailing heading paragraph inflates `usageBoundsForTextContainer` by ~30pt when the caret enters it. Pattern from STTextView.
@@ -40,6 +43,16 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             // Extend left to container edge
             bounds.origin.x = -layoutFragmentFrame.origin.x
             bounds.size.width = containerWidth
+        }
+        if hasBlockquote {
+            // The callout box pads above the first text line. TextKit gives the
+            // document's first paragraph no paragraphSpacingBefore, so that
+            // padding lands above the fragment's natural surface and would be
+            // clipped (the first quote then looks shorter than later ones).
+            // Extend the surface up/down by the inner pad so every box draws
+            // its full height regardless of position.
+            bounds.origin.y -= Self.blockquoteInternalPad
+            bounds.size.height += Self.blockquoteInternalPad * 2
         }
         // Extend bounds to cover block images that render below the text line
         // (visibleSource mode uses paragraphSpacing to create space for the image).
@@ -248,19 +261,14 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
               let accent = ts.attribute(.blockquoteAccent, at: range.location, effectiveRange: nil) as? NSColor
         else { return }
 
-        // Draw the callout box tightly around the text lines (+ internal padding)
-        // rather than the whole fragment, so the paragraph spacing becomes an
-        // external margin separating it from adjacent content.
+        let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let internalPad = Self.blockquoteInternalPad
+
         var lineFrags = textLineFragments
         if lineFrags.count > 1, let last = lineFrags.last, last.characterRange.length == 0 {
             lineFrags.removeLast()
         }
         guard let firstLF = lineFrags.first, let lastLF = lineFrags.last else { return }
-
-        let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
-        let internalPad: CGFloat = 5
-        let textTop = point.y + firstLF.typographicBounds.origin.y
-        let textBottom = point.y + lastLF.typographicBounds.origin.y + lastLF.typographicBounds.height
 
         var effectiveHeight = layoutFragmentFrame.height
         if textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 {
@@ -268,12 +276,23 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
         }
 
         // For adjacent quote lines, extend the box to the fragment edge so
-        // consecutive boxes abut exactly (no overlap seam, no gap).
+        // consecutive boxes abut exactly (no margin between them).
         let prevIsQuote = range.location > 0
             && ts.attribute(.blockquoteAccent, at: range.location - 1, effectiveRange: nil) != nil
         let nextIsQuote = NSMaxRange(range) < ts.length
             && ts.attribute(.blockquoteAccent, at: NSMaxRange(range), effectiveRange: nil) != nil
 
+        // Box the line box (origin → origin + height), in which TextKit already
+        // centers the glyphs, then pad symmetrically. Cap the height to the
+        // clean line height: the last line being typed has no trailing newline,
+        // so TextKit folds the paragraph spacing into its bounds, which would
+        // otherwise inflate the box downward and push the text up.
+        let font = (ts.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont)
+            ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let cleanLineHeight = ceil(font.ascender - font.descender + font.leading)
+        let textTop = point.y + firstLF.typographicBounds.origin.y
+        let textBottom = point.y + lastLF.typographicBounds.origin.y
+            + min(lastLF.typographicBounds.height, cleanLineHeight)
         let topEdge = prevIsQuote ? point.y : (textTop - internalPad)
         let bottomEdge = nextIsQuote ? (point.y + effectiveHeight) : (textBottom + internalPad)
 

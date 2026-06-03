@@ -44,8 +44,6 @@ extension MarkdownStyler {
             // after it (typing stays a blockquote) and supplies the text indent.
             para.firstLineHeadIndent = 0
             para.headIndent = markerWidth
-            para.minimumLineHeight = ctx.baseDefaultLineHeight
-            para.maximumLineHeight = ctx.baseDefaultLineHeight
             para.paragraphSpacingBefore = prevIsQuote ? innerGap : pad
             para.paragraphSpacing = nextIsQuote ? 0 : pad
             attrs.append((lineRange, [.paragraphStyle: para]))
