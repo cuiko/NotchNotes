@@ -17,11 +17,20 @@ struct NotebookView: View {
     let layout: NotchLayout
     let onOpenSettings: () -> Void
 
+    @State private var confirmation: ConfirmationRequest?
+
     var body: some View {
         ZStack(alignment: .top) {
             drawer
         }
         .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
+        .onChange(of: confirmation != nil) { _, presenting in
+            if presenting {
+                editorInteractionState.beginPresentingDialog()
+            } else {
+                editorInteractionState.endPresentingDialog()
+            }
+        }
     }
 
     private var drawer: some View {
@@ -34,6 +43,22 @@ struct NotebookView: View {
                 .opacity(expandedContentOpacity)
 
             compactIcon
+
+            if let confirmation, drawerState.isExpanded {
+                ConfirmationOverlay(
+                    request: confirmation,
+                    onConfirm: {
+                        confirmation.onConfirm()
+                        withAnimation(.easeOut(duration: 0.12)) { self.confirmation = nil }
+                    },
+                    onCancel: {
+                        withAnimation(.easeOut(duration: 0.12)) { self.confirmation = nil }
+                    }
+                )
+                .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
+                .transition(.opacity)
+                .zIndex(2)
+            }
         }
         .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
         .background(Color(red: 0.02, green: 0.02, blue: 0.025).opacity(0.98))
@@ -54,21 +79,24 @@ struct NotebookView: View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 12) {
                 HStack(alignment: .center, spacing: 10) {
-                    TabPagerControl(store: store, settingsStore: settingsStore, editorInteractionState: editorInteractionState)
+                    TabPagerControl(
+                        store: store,
+                        settingsStore: settingsStore,
+                        editorInteractionState: editorInteractionState,
+                        requestConfirmation: { confirmation = $0 }
+                    )
 
                     Spacer()
 
                     Button {
                         if settingsStore.confirmBeforeDelete {
-                            NSApp.activate(ignoringOtherApps: true)
-                            let alert = NSAlert()
-                            alert.messageText = "Clear note?"
-                            alert.informativeText = "The content of this tab will be permanently erased."
-                            alert.addButton(withTitle: "Clear")
-                            alert.addButton(withTitle: "Cancel")
-                            alert.alertStyle = .warning
-                            if runRaisedNotchAlert(alert) == .alertFirstButtonReturn {
-                                store.clear()
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                confirmation = ConfirmationRequest(
+                                    title: "Clear note?",
+                                    message: "The content of this tab will be permanently erased.",
+                                    confirmTitle: "Clear",
+                                    onConfirm: { store.clear() }
+                                )
                             }
                         } else {
                             store.clear()
@@ -88,6 +116,7 @@ struct NotebookView: View {
                     .help("Settings")
                 }
                 .frame(height: toolbarHeight, alignment: .center)
+                .zIndex(1)
 
                 MarkdownEditorPanel(
                     store: store,
@@ -256,24 +285,93 @@ struct MarkdownCommandLabel: View {
     }
 }
 
-@MainActor
-private func runRaisedNotchAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
-    // runModal() pins the alert to .modalPanel level, which sits below the
-    // notch panel's .statusBar level. Re-raise it once the modal loop is live.
-    let timer = Timer(timeInterval: 0, repeats: false) { _ in
-        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 3)
-        alert.window.orderFrontRegardless()
+/// A pending in-panel confirmation. Rendered as an overlay inside the notch
+/// drawer instead of a separate NSAlert window, so the pointer stays within the
+/// panel and never triggers the hover-out collapse.
+struct ConfirmationRequest: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var onConfirm: () -> Void
+}
+
+private struct ConfirmationOverlay: View {
+    let request: ConfirmationRequest
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onCancel)
+
+            VStack(spacing: 14) {
+                VStack(spacing: 6) {
+                    Text(request.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                    Text(request.message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Cancel", action: onCancel)
+                        .buttonStyle(ConfirmationButtonStyle(destructive: false))
+                    Button(request.confirmTitle, action: onConfirm)
+                        .buttonStyle(ConfirmationButtonStyle(destructive: true))
+                }
+            }
+            .padding(18)
+            .frame(width: 232)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
+            )
+            .shadow(color: .black.opacity(0.45), radius: 24, x: 0, y: 14)
+        }
     }
-    RunLoop.main.add(timer, forMode: .modalPanel)
-    return alert.runModal()
+}
+
+private struct TabTooltipAnchorKey: PreferenceKey {
+    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+struct ConfirmationButtonStyle: ButtonStyle {
+    let destructive: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let fill: Color = destructive
+            ? Color(red: 0.86, green: 0.27, blue: 0.27)
+            : Color.white.opacity(0.1)
+        return configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(destructive ? Color.white : Color.white.opacity(0.85))
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(fill.opacity(configuration.isPressed ? 0.7 : 1))
+            )
+            .contentShape(Rectangle())
+    }
 }
 
 struct TabPagerControl: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var settingsStore: AppSettingsStore
     let editorInteractionState: EditorInteractionState
+    let requestConfirmation: (ConfirmationRequest) -> Void
     @State private var draggingID: UUID?
     @State private var dragOffset: CGFloat = 0
+    @State private var hoveredTabID: UUID?
 
     private let dotCellWidth: CGFloat = 26
     private let dotSpacing: CGFloat = 6
@@ -281,30 +379,6 @@ struct TabPagerControl: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            Button {
-                if settingsStore.confirmBeforeDelete {
-                    NSApp.activate(ignoringOtherApps: true)
-                    let alert = NSAlert()
-                    alert.messageText = "Remove tab?"
-                    alert.informativeText = "The content of this tab will be permanently deleted."
-                    alert.addButton(withTitle: "Delete")
-                    alert.addButton(withTitle: "Cancel")
-                    alert.alertStyle = .warning
-                    guard runRaisedNotchAlert(alert) == .alertFirstButtonReturn else { return }
-                }
-                rememberCurrentSelection()
-                withAnimation(tabSwitchAnimation) {
-                    store.removeActiveTab()
-                }
-            } label: {
-                Image(systemName: "minus")
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(TabIconButtonStyle())
-            .disabled(store.tabs.count <= 1)
-            .help("Remove current tab")
-
             HStack(spacing: dotSpacing) {
                 ForEach(store.tabs) { tab in
                     let isSelected = tab.id == store.activeTabID
@@ -341,6 +415,22 @@ struct TabPagerControl: View {
                                 .onChanged { value in handleDrag(tab, translation: value.translation.width) }
                                 .onEnded { _ in endDrag() }
                         )
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                requestDeleteTab(tab.id)
+                            }
+                            .disabled(store.tabs.count <= 1)
+                        }
+                        .onHover { hovering in
+                            if hovering {
+                                hoveredTabID = tab.id
+                            } else if hoveredTabID == tab.id {
+                                hoveredTabID = nil
+                            }
+                        }
+                        .anchorPreference(key: TabTooltipAnchorKey.self, value: .bounds) {
+                            [tab.id: $0]
+                        }
                 }
             }
             .frame(minWidth: 20, alignment: .center)
@@ -365,10 +455,69 @@ struct TabPagerControl: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(.white.opacity(0.045))
         )
+        .overlayPreferenceValue(TabTooltipAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                if draggingID == nil,
+                   let id = hoveredTabID,
+                   let anchor = anchors[id],
+                   let tab = store.tabs.first(where: { $0.id == id }) {
+                    let rect = proxy[anchor]
+                    tabTooltip(tabTitle(tab))
+                        .position(x: rect.midX, y: rect.maxY + 14)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func tabTooltip(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
+            )
+            .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 3)
+    }
+
+    private func tabTitle(_ tab: NoteTab) -> String {
+        let firstLine = tab.text
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            .first.map(String.init) ?? ""
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Empty note" : String(trimmed.prefix(40))
     }
 
     private var tabSwitchAnimation: Animation {
         .spring(response: 0.26, dampingFraction: 0.82)
+    }
+
+    private func requestDeleteTab(_ id: UUID) {
+        guard store.tabs.count > 1 else { return }
+        if settingsStore.confirmBeforeDelete {
+            requestConfirmation(
+                ConfirmationRequest(
+                    title: "Delete tab?",
+                    message: "The content of this tab will be permanently deleted.",
+                    confirmTitle: "Delete",
+                    onConfirm: { deleteTab(id) }
+                )
+            )
+        } else {
+            deleteTab(id)
+        }
+    }
+
+    private func deleteTab(_ id: UUID) {
+        rememberCurrentSelection()
+        withAnimation(tabSwitchAnimation) {
+            store.removeTab(id)
+        }
     }
 
     private func rememberCurrentSelection() {

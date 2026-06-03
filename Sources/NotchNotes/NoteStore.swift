@@ -121,11 +121,17 @@ final class NoteStore: ObservableObject {
     }
 
     func removeActiveTab() {
-        guard tabs.count > 1 else { return }
-        let removedIndex = activeIndex
+        removeTab(activeTabID)
+    }
+
+    func removeTab(_ id: UUID) {
+        guard tabs.count > 1, let removedIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let wasActive = tabs[removedIndex].id == activeTabID
         tabs.remove(at: removedIndex)
-        let nextIndex = min(removedIndex, tabs.count - 1)
-        activeTabID = tabs[nextIndex].id
+        if wasActive {
+            let nextIndex = min(removedIndex, tabs.count - 1)
+            activeTabID = tabs[nextIndex].id
+        }
         save()
     }
 

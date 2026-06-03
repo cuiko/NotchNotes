@@ -44,7 +44,27 @@ enum MarkdownCommand: CaseIterable, Identifiable {
 @MainActor
 final class EditorInteractionState: ObservableObject {
     @Published private(set) var isDraggingSelection = false
+    private var isPresentingDialog = false
+    private var collapseGraceDeadline: Date = .distantPast
     var onSelectionChange: ((NSRange) -> Void)?
+
+    /// True while a modal confirmation dialog is on screen, and for a short
+    /// grace period after it closes. The panel keeps the drawer expanded during
+    /// this window so a dialog button outside the notch region doesn't trigger
+    /// the hover-out collapse, and so the pointer has time to return after the
+    /// dialog is dismissed.
+    var shouldKeepDrawerExpanded: Bool {
+        isPresentingDialog || Date() < collapseGraceDeadline
+    }
+
+    func beginPresentingDialog() {
+        isPresentingDialog = true
+    }
+
+    func endPresentingDialog(graceInterval: TimeInterval = 1.5) {
+        isPresentingDialog = false
+        collapseGraceDeadline = Date().addingTimeInterval(graceInterval)
+    }
 
     private weak var textView: NSTextView?
     private weak var observedSelectionTextView: NSTextView?
