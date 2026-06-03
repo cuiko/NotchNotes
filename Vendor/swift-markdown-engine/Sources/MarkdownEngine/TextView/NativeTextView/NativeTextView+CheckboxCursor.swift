@@ -28,8 +28,21 @@ extension NativeTextView {
         ))
     }
 
+    override func resetCursorRects() {
+        if cursorManagementSuppressed {
+            addCursorRect(visibleRect, cursor: .arrow)
+        } else {
+            super.resetCursorRects()
+        }
+    }
+
     override func mouseMoved(with event: NSEvent) {
-        if isPointOverTaskCheckbox(event) {
+        // While suppressed, do nothing — neither set a cursor nor call super
+        // (which would reassert the I-beam). The arrow comes from the cursor
+        // rect and the overlay; the overlay's buttons can then push their own.
+        if cursorManagementSuppressed { return }
+        updateImageDeleteButton(for: event)
+        if isPointOverImageDeleteButton(event) || isPointOverTaskCheckbox(event) {
             NSCursor.pointingHand.set()
         } else {
             super.mouseMoved(with: event)
@@ -37,7 +50,8 @@ extension NativeTextView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if isPointOverTaskCheckbox(event) {
+        if cursorManagementSuppressed { return }
+        if isPointOverImageDeleteButton(event) || isPointOverTaskCheckbox(event) {
             NSCursor.pointingHand.set()
         } else {
             super.cursorUpdate(with: event)

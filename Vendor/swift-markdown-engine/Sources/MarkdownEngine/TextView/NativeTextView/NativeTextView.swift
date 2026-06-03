@@ -48,6 +48,24 @@ final class NativeTextView: NSTextView {
     // MARK: Drag-select state
     var dragStartMouseScreenLoc: NSPoint?
 
+    // MARK: Image-embed delete button
+    var imageDeleteButton: NSButton?
+    var imageDeleteEmbedRange: NSRange?
+
+    /// When true the editor stops asserting its I-beam cursor, letting a modal
+    /// overlay drawn on top (which is not a real subview, so it can't otherwise
+    /// win the cursor) show the arrow instead.
+    var cursorManagementSuppressed = false {
+        didSet {
+            guard oldValue != cursorManagementSuppressed else { return }
+            window?.invalidateCursorRects(for: self)
+            if cursorManagementSuppressed {
+                hideImageDeleteButton()
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // Forward appearance changes to the embedder-supplied syntax highlighter
@@ -73,4 +91,12 @@ final class NativeTextView: NSTextView {
     }
 
     deinit { caretIndicatorObservation?.invalidate() }
+}
+
+public extension NSTextView {
+    /// Suppresses the markdown editor's I-beam cursor management while a modal
+    /// overlay covers the editor, so the overlay can show the arrow cursor.
+    func setMarkdownEditorCursorSuppressed(_ suppressed: Bool) {
+        (self as? NativeTextView)?.cursorManagementSuppressed = suppressed
+    }
 }
