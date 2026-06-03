@@ -207,8 +207,22 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             height: snappedMaxY - snappedY
         )
 
-        let selectionRects = selectionRectsInDrawCoordinates(drawPoint: point, snappedY: snappedY, snappedMaxY: snappedMaxY)
-        color.setFill()
+        // Cut out the glyph-line span only (not the inner padding) so the
+        // selection highlight shows through exactly where the system draws it,
+        // leaving the padding filled with the code background.
+        var contentLines = textLineFragments
+        if contentLines.count > 1, let last = contentLines.last, last.characterRange.length == 0 {
+            contentLines.removeLast()
+        }
+        let glyphTop = contentLines.first.map { point.y + $0.typographicBounds.origin.y } ?? snappedY
+        let glyphBottom = contentLines.last.map { point.y + $0.typographicBounds.origin.y + $0.typographicBounds.height } ?? snappedMaxY
+
+        let selectionRects = selectionRectsInDrawCoordinates(drawPoint: point, cutTop: glyphTop, cutBottom: glyphBottom)
+        // The text attribute is transparent (detection only); paint the box with
+        // the highlighter's actual (opaque) code background here.
+        let fillColor = (textLayoutManager?.textContainer?.textView as? NativeTextView)?
+            .configuration.services.syntaxHighlighter.backgroundColor() ?? color
+        fillColor.setFill()
         if selectionRects.isEmpty {
             NSBezierPath(rect: bgRect).fill()
         } else {
@@ -224,7 +238,7 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
     /// Returns active text-selection rectangles intersecting this fragment, in
     /// the same draw-relative coordinate system used by `drawCodeBlockBackground`.
-    private func selectionRectsInDrawCoordinates(drawPoint: CGPoint, snappedY: CGFloat, snappedMaxY: CGFloat) -> [CGRect] {
+    private func selectionRectsInDrawCoordinates(drawPoint: CGPoint, cutTop: CGFloat, cutBottom: CGFloat) -> [CGRect] {
         guard let tlm = textLayoutManager else { return [] }
         var rects: [CGRect] = []
 
@@ -241,13 +255,15 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
                       let intersection = NSTextRange(location: interStart, end: interEnd) else { continue }
 
                 tlm.enumerateTextSegments(in: intersection, type: .selection, options: []) { _, segFrame, _, _ in
-                    // Expand vertically to match the bgRect's snapped span so the
-                    // even-odd cut-out is geometrically congruent with the fill.
+                    // Take the selection x from the segment, but pin the vertical
+                    // span to the glyph lines (segFrame's own y uses a different
+                    // coordinate space) so the cut-out lands exactly on the
+                    // highlighted text and never on the inner padding.
                     let drawRect = CGRect(
                         x: segFrame.origin.x + dx,
-                        y: snappedY,
+                        y: cutTop,
                         width: segFrame.width,
-                        height: snappedMaxY - snappedY
+                        height: cutBottom - cutTop
                     )
                     rects.append(drawRect)
                     return true
@@ -463,11 +479,6 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
     private func drawTaskCheckboxes(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return }
-        let selectionRanges: [NSRange] = {
-            guard let tv = textLayoutManager?.textContainer?.textView else { return [] }
-            let values = tv.selectedRanges as? [NSValue] ?? []
-            return values.map { $0.rangeValue }.filter { $0.length > 0 }
-        }()
 
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
@@ -476,7 +487,6 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         ts.enumerateAttribute(.taskCheckbox, in: range, options: []) { [weak self] value, attrRange, _ in
             guard let self, value != nil else { return }
-            if selectionRanges.contains(where: { NSIntersectionRange($0, attrRange).length > 0 }) { return }
 
             let isChecked = (value as? Bool) ?? false
             guard let pos = drawPosition(forDocumentCharAt: attrRange.location, point: point) else { return }

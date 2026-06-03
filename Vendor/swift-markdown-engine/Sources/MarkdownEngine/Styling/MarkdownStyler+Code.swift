@@ -23,9 +23,13 @@ extension MarkdownStyler {
             let isActive = ctx.activeTokenIndices.contains(idx)
             let language = MarkdownTokenizer.extractLanguage(from: token, in: ctx.text)
 
+            // Carry the code background's RGB for fragment detection, but keep it
+            // transparent here: the visible fill is drawn by the layout fragment
+            // (which cuts out the selection). A solid text attribute would be
+            // painted over the selection highlight, hiding it inside the block.
             attrs.append((token.range, [
                 .font: ctx.codeFont,
-                .backgroundColor: ctx.codeBackgroundColor
+                .backgroundColor: ctx.codeBackgroundColor.withAlphaComponent(0)
             ]))
 
             // Per-line paragraph styles: interior lines are tight (no spacing),
