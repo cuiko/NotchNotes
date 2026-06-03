@@ -391,10 +391,20 @@ struct TabPagerControl: View {
     private let dotCellWidth: CGFloat = 26
     private let dotSpacing: CGFloat = 6
     private var dotStride: CGFloat { dotCellWidth + dotSpacing }
+    private let maxDotsStripWidth: CGFloat = 260
+
+    /// The dot strip hugs its content until it would exceed `maxDotsStripWidth`,
+    /// after which it stays fixed and scrolls horizontally.
+    private var dotsStripWidth: CGFloat {
+        let count = CGFloat(store.tabs.count)
+        let content = count * dotCellWidth + max(0, count - 1) * dotSpacing
+        return min(content, maxDotsStripWidth)
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            HStack(spacing: dotSpacing) {
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack(spacing: dotSpacing) {
                 ForEach(store.tabs) { tab in
                     let isSelected = tab.id == store.activeTabID
                     let isDragging = draggingID == tab.id
@@ -450,9 +460,10 @@ struct TabPagerControl: View {
                             [tab.id: $0]
                         }
                 }
+              }
+              .frame(height: 28, alignment: .center)
             }
-            .frame(minWidth: 20, alignment: .center)
-            .frame(height: 28, alignment: .center)
+            .frame(width: dotsStripWidth, height: 28)
 
             Button {
                 rememberCurrentSelection()
