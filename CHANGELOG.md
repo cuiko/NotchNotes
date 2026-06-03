@@ -62,3 +62,28 @@ persistence, and the settings popover — which the versions below extend.
   the marker) instead of leaving a stray indent.
 - **Block indentation** — select multiple lines and press `Tab` / `Shift-Tab` to
   indent / outdent them together.
+
+## [v0.1.1]
+
+From the upstream project —
+[release notes](https://github.com/oil-oil/NotchNotes/releases/tag/v0.1.1).
+
+### Fixed
+- Re-sign the full `.app` bundle after writing `Info.plist` and resources,
+  fixing a structurally invalid signature on the downloaded app; the packaged
+  app is now verified with `codesign` during packaging.
+
+### Changed
+- Update the bundle identifier to `io.github.oiloil.NotchNotes`.
+
+## [v0.1.0]
+
+Initial public build, from the upstream project —
+[release notes](https://github.com/oil-oil/NotchNotes/releases/tag/v0.1.0).
+
+### Added
+- Native macOS notch note panel built with SwiftUI and AppKit.
+- Hover or click trigger modes.
+- Live Markdown editing with common formatting shortcuts.
+- Image paste support and local note persistence.
+- Settings popover with refined dismissal behavior.
