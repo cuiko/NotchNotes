@@ -231,13 +231,14 @@ struct SettingsPopoverView: View {
                     Text("Ask before deleting")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.82))
+                        .fixedSize()
+                        .contentShape(Rectangle())
+                        .onTapGesture { settingsStore.confirmBeforeDelete.toggle() }
 
                     Spacer(minLength: 0)
 
-                    Toggle("", isOn: $settingsStore.confirmBeforeDelete)
-                        .labelsHidden()
-                        .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.72)))
-                        .controlSize(.mini)
+                    MiniSwitch(isOn: $settingsStore.confirmBeforeDelete)
+                        .pointingHandCursor()
                 }
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity)
@@ -246,7 +247,6 @@ struct SettingsPopoverView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(.white.opacity(0.055))
                 )
-                .pointingHandCursor()
             }
         }
         .padding(14)
@@ -262,6 +262,29 @@ struct SettingsPopoverView: View {
         .onAppear {
             appeared = true
         }
+    }
+}
+
+/// A small custom switch. Replaces the native `Toggle` so the pointing-hand
+/// cursor stays stable — NSSwitch asserts its own arrow cursor during a press,
+/// which a SwiftUI cursor modifier can't override until the next mouse move.
+struct MiniSwitch: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Capsule()
+            .fill(Color.white.opacity(isOn ? 0.72 : 0.16))
+            .frame(width: 38, height: 20)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 16, height: 16)
+                    .padding(2)
+                    .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+            }
+            .animation(.easeInOut(duration: 0.16), value: isOn)
+            .contentShape(Capsule())
+            .onTapGesture { isOn.toggle() }
     }
 }
 
@@ -302,24 +325,17 @@ private extension View {
 }
 
 private struct PointingHandOnHoverModifier: ViewModifier {
-    @State private var isActive = false
-
+    // Re-assert the cursor on every move inside the region (rather than a
+    // push/pop stack, which gets corrupted when adjacent hover regions trade
+    // enter/exit events out of order and leaves a stale cursor).
     func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                if hovering, !isActive {
-                    NSCursor.pointingHand.push()
-                    isActive = true
-                } else if !hovering, isActive {
-                    NSCursor.pop()
-                    isActive = false
-                }
+        content.onContinuousHover { phase in
+            switch phase {
+            case .active:
+                NSCursor.pointingHand.set()
+            case .ended:
+                NSCursor.arrow.set()
             }
-            .onDisappear {
-                if isActive {
-                    NSCursor.pop()
-                    isActive = false
-                }
-            }
+        }
     }
 }
