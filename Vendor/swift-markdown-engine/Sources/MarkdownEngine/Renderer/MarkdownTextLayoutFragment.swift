@@ -24,7 +24,7 @@ extension NSAttributedString.Key {
 final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
     /// Inner padding above/below the text inside a blockquote callout box.
-    static let blockquoteInternalPad: CGFloat = 9
+    static let blockquoteInternalPad: CGFloat = 5
 
     // MARK: - FB15131180
 
