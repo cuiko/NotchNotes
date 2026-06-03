@@ -521,7 +521,7 @@ struct TabPagerControl: View {
             .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init) ?? ""
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "Empty note" : String(trimmed.prefix(40))
+        return trimmed.isEmpty ? "Empty note" : String(trimmed.prefix(20))
     }
 
     private var tabSwitchAnimation: Animation {
