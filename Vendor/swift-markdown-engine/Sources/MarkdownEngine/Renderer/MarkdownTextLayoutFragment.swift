@@ -413,7 +413,20 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         let yPosition: CGFloat
         if let blockOffsetY {
-            yPosition = lineMinY + blockOffsetY
+            // blockOffsetY assumes single-line source (one line down + gap). When
+            // the source wraps, draw the image below ALL source lines so it never
+            // overlaps a wrapped line (which would hide that line's selection).
+            var sourceLines = textLineFragments
+            if sourceLines.count > 1, let last = sourceLines.last, last.characterRange.length == 0 {
+                sourceLines.removeLast()
+            }
+            let gap = max(0, blockOffsetY - lineHeight)
+            if let last = sourceLines.last {
+                let lastBottom = point.y + last.typographicBounds.origin.y + last.typographicBounds.height
+                yPosition = lastBottom + gap
+            } else {
+                yPosition = lineMinY + blockOffsetY
+            }
         } else {
             yPosition = lineMinY + (lineHeight - imageBounds.height) / 2
         }
