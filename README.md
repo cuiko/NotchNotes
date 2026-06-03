@@ -4,7 +4,7 @@
 
 NotchNotes is a small native macOS note app that lives at the top edge of your MacBook screen. Move the cursor to the notch area and it unfolds into a dark Markdown notebook for quick tasks, links, screenshots, and tiny reminders.
 
-## What's in this fork
+## What's new in this fork
 
 See [CHANGELOG](CHANGELOG.md).
 
