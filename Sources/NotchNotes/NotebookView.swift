@@ -91,41 +91,43 @@ struct NotebookView: View {
 
                     Spacer()
 
-                    Button {
-                        if settingsStore.confirmBeforeDelete {
-                            withAnimation(.easeOut(duration: 0.12)) {
-                                confirmation = ConfirmationRequest(
-                                    title: "Clear note?",
-                                    message: "The content of this tab will be permanently erased.",
-                                    confirmTitle: "Clear",
-                                    onConfirm: { store.clear() }
-                                )
+                    HStack(spacing: 6) {
+                        Button {
+                            if settingsStore.confirmBeforeDelete {
+                                withAnimation(.easeOut(duration: 0.12)) {
+                                    confirmation = ConfirmationRequest(
+                                        title: "Clear note?",
+                                        message: "The content of this tab will be permanently erased.",
+                                        confirmTitle: "Clear",
+                                        onConfirm: { store.clear() }
+                                    )
+                                }
+                            } else {
+                                store.clear()
                             }
-                        } else {
-                            store.clear()
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 28, height: 28)
                         }
-                    } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(DarkIconButtonStyle())
-                    .help("Clear")
+                        .buttonStyle(DarkIconButtonStyle())
+                        .help("Clear")
 
-                    Button {
-                        drawerState.isPinned.toggle()
-                    } label: {
-                        Image(systemName: drawerState.isPinned ? "pin.fill" : "pin")
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(DarkIconButtonStyle())
-                    .help(drawerState.isPinned ? "Unpin from top" : "Pin on top")
+                        Button {
+                            drawerState.isPinned.toggle()
+                        } label: {
+                            Image(systemName: drawerState.isPinned ? "pin.fill" : "pin")
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(DarkIconButtonStyle())
+                        .help(drawerState.isPinned ? "Unpin from top" : "Pin on top")
 
-                    Button(action: onOpenSettings) {
-                        Image(systemName: "gearshape")
-                            .frame(width: 28, height: 28)
+                        Button(action: onOpenSettings) {
+                            Image(systemName: "gearshape")
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(DarkIconButtonStyle())
+                        .help("Settings")
                     }
-                    .buttonStyle(DarkIconButtonStyle())
-                    .help("Settings")
                 }
                 .frame(height: toolbarHeight, alignment: .center)
                 .zIndex(1)
