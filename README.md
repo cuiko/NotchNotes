@@ -6,9 +6,7 @@ NotchNotes is a small native macOS note app that lives at the top edge of your M
 
 ## What's in this fork
 
-This fork adds tabs, richer Markdown rendering, and list/to-do editing
-improvements on top of the original. See the [changelog](CHANGELOG.md) for the
-full list.
+See [CHANGELOG](CHANGELOG.md).
 
 ## Download
 
