@@ -14,7 +14,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 238, height: 206)
+    private let contentSize = NSSize(width: 238, height: 248)
 
     init(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
@@ -223,7 +223,7 @@ struct SettingsPopoverView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Confirm delete")
+                Text("General")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.50))
 
@@ -247,10 +247,31 @@ struct SettingsPopoverView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(.white.opacity(0.055))
                 )
+
+                Button {
+                    NSApp.terminate(nil)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "power")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Quit NotchNotes")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(Color(red: 0.95, green: 0.45, blue: 0.45))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.white.opacity(0.055))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
             }
         }
         .padding(14)
-        .frame(width: 238, height: 206)
+        .frame(width: 238, height: 248)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
