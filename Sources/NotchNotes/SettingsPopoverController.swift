@@ -14,7 +14,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 238, height: 248)
+    private let contentSize = NSSize(width: 238, height: 290)
 
     init(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
@@ -227,26 +227,8 @@ struct SettingsPopoverView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.50))
 
-                HStack(spacing: 10) {
-                    Text("Ask before deleting")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .fixedSize()
-                        .contentShape(Rectangle())
-                        .onTapGesture { settingsStore.confirmBeforeDelete.toggle() }
-
-                    Spacer(minLength: 0)
-
-                    MiniSwitch(isOn: $settingsStore.confirmBeforeDelete)
-                        .pointingHandCursor()
-                }
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(0.055))
-                )
+                toggleRow("Ask before deleting", isOn: $settingsStore.confirmBeforeDelete)
+                toggleRow("Launch at login", isOn: $settingsStore.launchAtLogin)
 
                 Button {
                     NSApp.terminate(nil)
@@ -271,7 +253,7 @@ struct SettingsPopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 238, height: 248)
+        .frame(width: 238, height: 290)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
@@ -282,7 +264,31 @@ struct SettingsPopoverView: View {
         .animation(.spring(response: 0.22, dampingFraction: 0.86), value: appeared)
         .onAppear {
             appeared = true
+            settingsStore.refreshLaunchAtLoginStatus()
         }
+    }
+
+    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.82))
+                .fixedSize()
+                .contentShape(Rectangle())
+                .onTapGesture { isOn.wrappedValue.toggle() }
+
+            Spacer(minLength: 0)
+
+            MiniSwitch(isOn: isOn)
+                .pointingHandCursor()
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.white.opacity(0.055))
+        )
     }
 }
 

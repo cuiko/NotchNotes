@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ServiceManagement
 
 enum TriggerMode: String, CaseIterable, Identifiable {
     case hover
@@ -40,6 +41,39 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    /// Mirrors the macOS login-item registration. Toggling registers or
+    /// unregisters the app via SMAppService; the system is the source of truth.
+    @Published var launchAtLogin: Bool {
+        didSet {
+            guard !isSyncingLoginItem, launchAtLogin != oldValue else { return }
+            do {
+                if launchAtLogin {
+                    if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+                } else {
+                    if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
+                }
+            } catch {
+                // Couldn't change it — snap the toggle back to the real state.
+                isSyncingLoginItem = true
+                launchAtLogin = SMAppService.mainApp.status == .enabled
+                isSyncingLoginItem = false
+            }
+        }
+    }
+
+    private var isSyncingLoginItem = false
+
+    /// Re-reads the system login-item state into the toggle without registering
+    /// or unregistering — used when reopening Settings so an external change
+    /// (e.g. via System Settings) is reflected.
+    func refreshLaunchAtLoginStatus() {
+        let enabled = SMAppService.mainApp.status == .enabled
+        guard enabled != launchAtLogin else { return }
+        isSyncingLoginItem = true
+        launchAtLogin = enabled
+        isSyncingLoginItem = false
+    }
+
     private static let triggerModeKey = "notchNotes.triggerMode"
     private static let confirmBeforeDeleteKey = "notchNotes.confirmBeforeDelete"
 
@@ -52,5 +86,7 @@ final class AppSettingsStore: ObservableObject {
         } else {
             confirmBeforeDelete = true
         }
+
+        launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 }
