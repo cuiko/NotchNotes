@@ -9,6 +9,14 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.2
+
+### Added
+- **Launch at login** — a Settings toggle (under *General*) registers the app
+  as a macOS login item.
+- **Quit** — a Quit button in Settings, so the menu-bar-only app can be quit
+  without finding its status-bar menu.
+
 ## v0.2.1
 
 ### Added
