@@ -97,7 +97,9 @@ struct NotebookView: View {
                                 withAnimation(.easeOut(duration: 0.12)) {
                                     confirmation = ConfirmationRequest(
                                         title: "Clear note?",
-                                        message: "The content of this tab will be permanently erased.",
+                                        message: noteFirstLinePreview(store.text).map {
+                                            "“\($0)” will be permanently erased."
+                                        } ?? "This empty note will be cleared.",
                                         confirmTitle: "Clear",
                                         onConfirm: { store.clear() }
                                     )
@@ -310,6 +312,17 @@ struct ConfirmationRequest: Identifiable {
     var onConfirm: () -> Void
 }
 
+/// The trimmed, length-capped first line of a note, used in confirmation
+/// messages so the user can tell which note they're acting on. Returns nil when
+/// the note is empty.
+func noteFirstLinePreview(_ text: String) -> String? {
+    let firstLine = (text
+        .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        .first.map(String.init) ?? "")
+        .trimmingCharacters(in: .whitespaces)
+    return firstLine.isEmpty ? nil : String(firstLine.prefix(20))
+}
+
 private struct ConfirmationOverlay: View {
     let request: ConfirmationRequest
     let onConfirm: () -> Void
@@ -321,14 +334,14 @@ private struct ConfirmationOverlay: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onCancel)
 
-            VStack(spacing: 14) {
-                VStack(spacing: 6) {
+            VStack(spacing: 16) {
+                VStack(spacing: 8) {
                     Text(request.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.92))
                     Text(request.message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.58))
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.62))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -342,8 +355,8 @@ private struct ConfirmationOverlay: View {
                         .pointingHandCursor()
                 }
             }
-            .padding(18)
-            .frame(width: 232)
+            .padding(20)
+            .frame(width: 264)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
@@ -369,10 +382,10 @@ struct ConfirmationButtonStyle: ButtonStyle {
             ? Color(red: 0.86, green: 0.27, blue: 0.27)
             : Color.white.opacity(0.1)
         return configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(destructive ? Color.white : Color.white.opacity(0.85))
             .frame(maxWidth: .infinity)
-            .frame(height: 30)
+            .frame(height: 32)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(fill.opacity(configuration.isPressed ? 0.7 : 1))
@@ -517,11 +530,7 @@ struct TabPagerControl: View {
     }
 
     private func tabTitle(_ tab: NoteTab) -> String {
-        let firstLine = tab.text
-            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-            .first.map(String.init) ?? ""
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "Empty note" : String(trimmed.prefix(20))
+        noteFirstLinePreview(tab.text) ?? "Empty note"
     }
 
     private var tabSwitchAnimation: Animation {
@@ -534,7 +543,7 @@ struct TabPagerControl: View {
             requestConfirmation(
                 ConfirmationRequest(
                     title: "Delete tab?",
-                    message: "The content of this tab will be permanently deleted.",
+                    message: deleteTabMessage(id),
                     confirmTitle: "Delete",
                     onConfirm: { deleteTab(id) }
                 )
@@ -542,6 +551,22 @@ struct TabPagerControl: View {
         } else {
             deleteTab(id)
         }
+    }
+
+    private func deleteTabMessage(_ id: UUID) -> String {
+        guard let tab = store.tabs.first(where: { $0.id == id }),
+              let preview = noteFirstLinePreview(tab.text) else {
+            return "This empty tab will be permanently deleted."
+        }
+        return "“\(preview)” and its content will be permanently deleted."
+    }
+
+    private func clearCompletedMessage(_ id: UUID) -> String {
+        guard let tab = store.tabs.first(where: { $0.id == id }),
+              let preview = noteFirstLinePreview(tab.text) else {
+            return "Completed to-dos in this tab will be removed."
+        }
+        return "Completed to-dos in “\(preview)” will be removed."
     }
 
     private func deleteTab(_ id: UUID) {
@@ -556,7 +581,7 @@ struct TabPagerControl: View {
             requestConfirmation(
                 ConfirmationRequest(
                     title: "Clear completed?",
-                    message: "Completed to-dos in this tab will be removed.",
+                    message: clearCompletedMessage(id),
                     confirmTitle: "Clear",
                     onConfirm: { performCleanFinished(id) }
                 )
