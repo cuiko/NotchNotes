@@ -215,23 +215,48 @@ extension NativeTextViewWrapper.Coordinator {
         return line.hasPrefix("\t• ") || line.hasPrefix("1. ")
     }
 
-    private func applyHeading(level: Int) {
+    /// Applies a line-level transform to every line the selection touches,
+    /// replacing the whole line block in one edit so multi-line selections style
+    /// each line instead of collapsing into the first one. `transform` returns
+    /// nil to leave a line untouched (e.g. blanks); `itemIndex` counts only the
+    /// transformed lines, for numbered lists.
+    private func transformSelectedLines(_ transform: (_ line: String, _ itemIndex: Int) -> String?) {
         guard let tv = textView else { return }
         let nsText = tv.string as NSString
         let range = tv.selectedRange()
         let lineRange = nsText.lineRange(for: range)
-        let rawLine = nsText.substring(with: lineRange).trimmingCharacters(in: .whitespacesAndNewlines)
-        var content = rawLine
-        while content.hasPrefix("#") { content.removeFirst() }
-        content = content.trimmingCharacters(in: .whitespaces)
-        let prefix = String(repeating: "#", count: level) + " "
-        let newLine = prefix + content
-        if tv.shouldChangeText(in: lineRange, replacementString: newLine) {
-            tv.replaceCharacters(in: lineRange, with: newLine)
+        let block = nsText.substring(with: lineRange)
+        let hasTrailingNewline = block.hasSuffix("\n")
+        var lines = block.components(separatedBy: "\n")
+        if hasTrailingNewline { lines.removeLast() }
+        if lines.isEmpty { lines = [""] }
+
+        var itemIndex = 0
+        let transformed = lines.map { line -> String in
+            if let out = transform(line, itemIndex) {
+                itemIndex += 1
+                return out
+            }
+            return line
+        }
+        let body = transformed.joined(separator: "\n")
+        let replacement = body + (hasTrailingNewline ? "\n" : "")
+        if tv.shouldChangeText(in: lineRange, replacementString: replacement) {
+            tv.replaceCharacters(in: lineRange, with: replacement)
             tv.didChangeText()
-            let newSel = NSRange(location: lineRange.location + prefix.count, length: content.count)
-            tv.setSelectedRange(newSel)
+            tv.setSelectedRange(NSRange(location: lineRange.location, length: (body as NSString).length))
             DispatchQueue.main.async { self.text = tv.string }
+        }
+    }
+
+    private func applyHeading(level: Int) {
+        let prefix = String(repeating: "#", count: level) + " "
+        transformSelectedLines { line, _ in
+            var content = line.trimmingCharacters(in: .whitespaces)
+            guard !content.isEmpty else { return nil }
+            while content.hasPrefix("#") { content.removeFirst() }
+            content = content.trimmingCharacters(in: .whitespaces)
+            return prefix + content
         }
     }
 
@@ -240,26 +265,37 @@ extension NativeTextViewWrapper.Coordinator {
     }
 
     private func applyList(prefix: String) {
-        guard let tv = textView else { return }
-        let nsText = tv.string as NSString
-        let selRange = tv.selectedRange()
-        let startLine = nsText.lineRange(for: selRange)
-        let originalLine = nsText.substring(with: startLine)
-        let lineText = originalLine.trimmingCharacters(in: .newlines)
-        var content = lineText
-        if content.hasPrefix(prefix) {
-            content = String(content.dropFirst(prefix.count))
+        transformSelectedLines { line, _ in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            var content = line
+            if content.hasPrefix(prefix) {
+                content = String(content.dropFirst(prefix.count))
+            }
+            return prefix + content
         }
-        let newLine = prefix + content
-        let suffix = originalLine.hasSuffix("\n") ? "\n" : ""
-        let replacement = newLine + suffix
-        if tv.shouldChangeText(in: startLine, replacementString: replacement) {
-            tv.replaceCharacters(in: startLine, with: replacement)
-            tv.didChangeText()
-            let newSel = NSRange(location: startLine.location + prefix.count, length: content.count)
-            tv.setSelectedRange(newSel)
-            DispatchQueue.main.async { self.text = tv.string }
+    }
+
+    private func applyOrderedList() {
+        transformSelectedLines { line, index in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            let content = stripOrderedListPrefix(from: line)
+            return "\(index + 1). " + content
         }
+    }
+
+    /// Drops a leading `N. ` ordered-list marker so re-applying renumbers
+    /// instead of stacking prefixes.
+    private func stripOrderedListPrefix(from line: String) -> String {
+        var digits = 0
+        for char in line {
+            if char.isNumber { digits += 1 } else { break }
+        }
+        guard digits > 0 else { return line }
+        let afterDigits = line.index(line.startIndex, offsetBy: digits)
+        guard line[afterDigits...].hasPrefix(". ") else { return line }
+        return String(line[line.index(afterDigits, offsetBy: 2)...])
     }
 
     @objc func didMarkdownUnorderedList(_ sender: Any?) {
@@ -267,7 +303,7 @@ extension NativeTextViewWrapper.Coordinator {
     }
 
     @objc func didMarkdownOrderedList(_ sender: Any?) {
-        applyList(prefix: "1. ")
+        applyOrderedList()
     }
 
     @objc func didMarkdownBold(_ sender: Any?) {
@@ -325,6 +361,25 @@ extension NativeTextViewWrapper.Coordinator {
         let nsText = tv.string as NSString
         let range = tv.selectedRange()
         let original = nsText.substring(with: range)
+
+        // Inline Markdown markers don't span line breaks, so a multi-line
+        // selection wraps each line individually rather than only the whole
+        // block's head/tail.
+        if original.contains("\n") {
+            let newText = original
+                .components(separatedBy: "\n")
+                .map { wrapLine($0, with: marker) }
+                .joined(separator: "\n")
+            if tv.shouldChangeText(in: range, replacementString: newText) {
+                tv.replaceCharacters(in: range, with: newText)
+                tv.didChangeText()
+                let newRange = NSRange(location: range.location, length: (newText as NSString).length)
+                tv.setSelectedRange(newRange)
+                DispatchQueue.main.async { self.text = tv.string }
+            }
+            return
+        }
+
         let leadingWS = original.prefix { $0.isWhitespace }.count
         let trailingWS = original.reversed().prefix { $0.isWhitespace }.count
         let coreStart = original.index(original.startIndex, offsetBy: leadingWS)
@@ -340,6 +395,21 @@ extension NativeTextViewWrapper.Coordinator {
             tv.setSelectedRange(newRange)
             DispatchQueue.main.async { self.text = tv.string }
         }
+    }
+
+    /// Wrap a single line's non-whitespace core with the marker, preserving any
+    /// leading/trailing whitespace and leaving blank lines untouched.
+    private func wrapLine(_ line: String, with marker: String) -> String {
+        let leadingWS = line.prefix { $0.isWhitespace }.count
+        let trailingWS = line.reversed().prefix { $0.isWhitespace }.count
+        guard leadingWS + trailingWS < line.count else { return line }
+
+        let coreStart = line.index(line.startIndex, offsetBy: leadingWS)
+        let coreEnd = line.index(line.endIndex, offsetBy: -trailingWS)
+        let leading = String(line[..<coreStart])
+        let core = String(line[coreStart..<coreEnd])
+        let trailing = String(line[coreEnd...])
+        return leading + marker + core + marker + trailing
     }
 }
 

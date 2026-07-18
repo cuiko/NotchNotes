@@ -239,11 +239,36 @@ final class EditorInteractionState: ObservableObject {
             let replacement = prefix + suffix
             let caret = NSRange(location: range.location + prefixLength, length: 0)
             replaceText(in: textView, range: range, with: replacement, selectionAfter: caret)
+        } else if selectedText.contains("\n") {
+            // Inline Markdown markers don't span line breaks, so wrap each line
+            // individually instead of only the head/tail of the whole block.
+            let replacement = selectedText
+                .components(separatedBy: "\n")
+                .map { wrapLine($0, prefix: prefix, suffix: suffix) }
+                .joined(separator: "\n")
+            let selection = NSRange(location: range.location, length: (replacement as NSString).length)
+            replaceText(in: textView, range: range, with: replacement, selectionAfter: selection)
         } else {
             let replacement = prefix + selectedText + suffix
             let selection = NSRange(location: range.location + prefixLength, length: (selectedText as NSString).length)
             replaceText(in: textView, range: range, with: replacement, selectionAfter: selection)
         }
+    }
+
+    /// Wrap a single line's non-whitespace core with the markers, preserving any
+    /// leading/trailing whitespace and leaving blank lines untouched (so we never
+    /// emit empty "~~~~" markers).
+    private func wrapLine(_ line: String, prefix: String, suffix: String) -> String {
+        let leadingWS = line.prefix { $0.isWhitespace }.count
+        let trailingWS = line.reversed().prefix { $0.isWhitespace }.count
+        guard leadingWS + trailingWS < line.count else { return line }
+
+        let coreStart = line.index(line.startIndex, offsetBy: leadingWS)
+        let coreEnd = line.index(line.endIndex, offsetBy: -trailingWS)
+        let leading = String(line[..<coreStart])
+        let core = String(line[coreStart..<coreEnd])
+        let trailing = String(line[coreEnd...])
+        return leading + prefix + core + suffix + trailing
     }
 
     private func applyLink(in textView: NSTextView) {
