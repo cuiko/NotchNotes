@@ -9,6 +9,18 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.3
+
+### Fixed
+- **Multi-line inline styling** — applying bold, italic, strikethrough, or
+  inline code to a selection spanning several lines now wraps each line
+  individually instead of only the block's head and tail (which produced markup
+  that spanned line breaks and didn't render). Blank lines are skipped. Applies
+  to both the toolbar and the right-click *Format* menu.
+- **Multi-line headings and lists** — the right-click *Heading* and *Lists*
+  actions now prefix every selected line instead of collapsing the selection
+  into just the first line. Numbered lists renumber each line sequentially.
+
 ## v0.2.2
 
 ### Added
