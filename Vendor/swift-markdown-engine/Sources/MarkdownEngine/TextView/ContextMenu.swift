@@ -212,7 +212,7 @@ extension NativeTextViewWrapper.Coordinator {
     func isSelectionList(in nsText: NSString, range: NSRange) -> Bool {
         let lineRange = nsText.lineRange(for: range)
         let line = nsText.substring(with: lineRange)
-        return line.hasPrefix("\t• ") || line.hasPrefix("1. ")
+        return line.hasPrefix("• ") || line.hasPrefix("1. ")
     }
 
     /// Applies a line-level transform to every line the selection touches,
@@ -299,7 +299,7 @@ extension NativeTextViewWrapper.Coordinator {
     }
 
     @objc func didMarkdownUnorderedList(_ sender: Any?) {
-        applyList(prefix: "\t• ")
+        applyList(prefix: "• ")
     }
 
     @objc func didMarkdownOrderedList(_ sender: Any?) {

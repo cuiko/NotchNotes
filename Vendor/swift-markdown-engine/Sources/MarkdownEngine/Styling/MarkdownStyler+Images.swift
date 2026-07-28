@@ -45,7 +45,12 @@ extension MarkdownStyler {
                 } else {
                     targetWidth = min(imageSize.width, maxWidth)
                 }
-                let scale = targetWidth / imageSize.width
+                var scale = targetWidth / imageSize.width
+                // Cap the height so a tall image never exceeds the visible editor
+                // area (which otherwise mispositions its oversized line).
+                if imageSize.height * scale > imageEmbedConfig.maxHeight {
+                    scale = imageEmbedConfig.maxHeight / imageSize.height
+                }
                 let displayWidth = imageSize.width * scale
                 let displayHeight = imageSize.height * scale
                 let imageBounds = CGRect(x: 0, y: 0, width: displayWidth, height: displayHeight)

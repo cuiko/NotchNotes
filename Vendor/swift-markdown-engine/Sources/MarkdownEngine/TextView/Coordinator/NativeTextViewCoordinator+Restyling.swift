@@ -47,11 +47,18 @@ extension NativeTextViewCoordinator {
 
         let tokens = parsedDocument(for: displayText).tokens
         let caretLocation = textView.selectedRange().location
-        activeTokenIndices = MarkdownDetection.computeActiveTokenIndices(
-            selectionRange: textView.selectedRange(),
-            tokens: tokens,
-            in: nsDisplay
-        )
+        // On a document switch the selection still points into the previous
+        // document. Don't activate (expand to source) any token from that stale
+        // range, or an image embed briefly flashes its `![[...]]` source before
+        // the real selection is restored. The subsequent selection restore
+        // recomputes active tokens correctly.
+        activeTokenIndices = invalidateLayout
+            ? []
+            : MarkdownDetection.computeActiveTokenIndices(
+                selectionRange: textView.selectedRange(),
+                tokens: tokens,
+                in: nsDisplay
+            )
 
         let ranges = MarkdownStyler.styleAttributes(
             text: displayText,

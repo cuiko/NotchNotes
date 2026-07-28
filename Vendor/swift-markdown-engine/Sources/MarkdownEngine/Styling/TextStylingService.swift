@@ -107,7 +107,28 @@ struct TextStylingService {
             }
         }
         textView.textStorage?.endEditing()
-        // No ensureLayout here:
+
+        // Block images (image embeds / block LaTeX) size their paragraph's line
+        // to the image height. TextKit 2's lazy layout can leave a tall image
+        // mispositioned — a big gap with the image pushed far down — until the
+        // next interaction forces a relayout. Force layout for those paragraphs
+        // now so the height is applied immediately, not on the next click.
+        let blockImageRanges = styledRanges.compactMap { (range, attrs) -> NSRange? in
+            (attrs[.latexImage] != nil && (attrs[.latexIsBlock] as? Bool == true)) ? range : nil
+        }
+        if !blockImageRanges.isEmpty,
+           let tlm = textView.textLayoutManager,
+           let contentStorage = tlm.textContentManager as? NSTextContentStorage {
+            let nsText = textView.string as NSString
+            for range in blockImageRanges {
+                let paragraph = nsText.paragraphRange(for: range)
+                guard let textRange = textRange(from: paragraph, in: contentStorage) else { continue }
+                tlm.invalidateLayout(for: textRange)
+                tlm.ensureLayout(for: textRange)
+            }
+        }
+
+        // No general ensureLayout here:
         textView.setNeedsDisplay(textView.visibleRect)
         (textView as? NativeTextView)?.ensureVisibleLayout()
     }

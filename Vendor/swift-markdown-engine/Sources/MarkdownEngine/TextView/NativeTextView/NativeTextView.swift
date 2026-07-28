@@ -48,9 +48,16 @@ final class NativeTextView: NSTextView {
     // MARK: Drag-select state
     var dragStartMouseScreenLoc: NSPoint?
 
-    // MARK: Image-embed delete button
+    // MARK: Image-embed hover buttons
     var imageDeleteButton: NSButton?
+    var imageEditButton: NSButton?
+    var imageZoomButton: NSButton?
     var imageDeleteEmbedRange: NSRange?
+
+    // MARK: Code-block copy button
+    var codeCopyButton: NSButton?
+    var codeCopyText: String?
+    var codeCopyResetWorkItem: DispatchWorkItem?
 
     /// When true the editor stops asserting its I-beam cursor, letting a modal
     /// overlay drawn on top (which is not a real subview, so it can't otherwise
@@ -61,6 +68,7 @@ final class NativeTextView: NSTextView {
             window?.invalidateCursorRects(for: self)
             if cursorManagementSuppressed {
                 hideImageDeleteButton()
+                hideCodeCopyButton()
                 NSCursor.arrow.set()
             }
         }

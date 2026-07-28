@@ -42,7 +42,8 @@ extension NativeTextView {
         // rect and the overlay; the overlay's buttons can then push their own.
         if cursorManagementSuppressed { return }
         updateImageDeleteButton(for: event)
-        if isPointOverImageDeleteButton(event) || isPointOverTaskCheckbox(event) {
+        updateCodeCopyButton(for: event)
+        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) {
             NSCursor.pointingHand.set()
         } else {
             super.mouseMoved(with: event)
@@ -51,7 +52,7 @@ extension NativeTextView {
 
     override func cursorUpdate(with event: NSEvent) {
         if cursorManagementSuppressed { return }
-        if isPointOverImageDeleteButton(event) || isPointOverTaskCheckbox(event) {
+        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) {
             NSCursor.pointingHand.set()
         } else {
             super.cursorUpdate(with: event)

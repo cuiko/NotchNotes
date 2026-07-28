@@ -39,6 +39,10 @@ struct MarkdownLists {
         var body = block as String
         if hadTrailingNewline { body.removeLast() }
 
+        let unit = indentUnit(for: textView)
+        let unitLen = (unit as NSString).length
+        let width = indentWidth(for: textView)
+
         var changed = false
         var firstLineDelta = 0
         let lines = body.components(separatedBy: "\n").enumerated().map { index, line -> String in
@@ -50,13 +54,13 @@ struct MarkdownLists {
                 }
                 var trimmed = line
                 var removed = 0
-                while removed < 2 && trimmed.hasPrefix(" ") { trimmed.removeFirst(); removed += 1 }
+                while removed < width && trimmed.hasPrefix(" ") { trimmed.removeFirst(); removed += 1 }
                 if removed > 0 { changed = true; if index == 0 { firstLineDelta = -removed } }
                 return trimmed
             } else {
                 changed = true
-                if index == 0 { firstLineDelta = 1 }
-                return "\t" + line
+                if index == 0 { firstLineDelta = unitLen }
+                return unit + line
             }
         }
         guard changed else { return false }
@@ -83,10 +87,21 @@ struct MarkdownLists {
     static let numberRegex = try! NSRegularExpression(pattern: #"^\s*(\d+)\.$"#)
     static let leadingWhitespaceRegex = try! NSRegularExpression(pattern: #"^\s*"#)
 
-    static func indentLevel(from leadingWhitespace: String) -> Int {
+    static func indentLevel(from leadingWhitespace: String, spacesPerLevel: Int = 2) -> Int {
         let tabCount = leadingWhitespace.filter { $0 == "\t" }.count
         let spaceCount = leadingWhitespace.filter { $0 == " " }.count
-        return tabCount + (spaceCount / 2)
+        return tabCount + (spaceCount / max(1, spacesPerLevel))
+    }
+
+    /// The string one indent level inserts (a tab, or N spaces) per the text
+    /// view's configuration. Falls back to a tab for non-engine text views.
+    static func indentUnit(for textView: NSTextView) -> String {
+        ((textView as? NativeTextView)?.configuration ?? .default).indent.unit
+    }
+
+    /// How many characters one indent level spans for the text view's config.
+    static func indentWidth(for textView: NSTextView) -> Int {
+        ((textView as? NativeTextView)?.configuration ?? .default).indent.width
     }
 
     // MARK: - Paragraph Attributes for List Styling
@@ -194,9 +209,14 @@ struct MarkdownLists {
                 if afterMarker.isEmpty, caret == lineRange.location + markerEnd {
                     if wsLen > 0 {
                         let ws = line.substring(to: wsLen)
-                        let removeLen = ws.hasSuffix("\t") ? 1 : min(2, wsLen)
+                        let removeLen = ws.hasSuffix("\t") ? 1 : min(MarkdownLists.indentWidth(for: textView), wsLen)
                         MarkdownLists.performEdit(textView, replace: NSRange(location: lineRange.location + wsLen - removeLen, length: removeLen), with: "")
                         textView.setSelectedRange(NSRange(location: caret - removeLen, length: 0))
+                    } else if line.substring(to: markerEnd).trimmingCharacters(in: .whitespaces) == "•" {
+                        // A converted bullet emptied of content reverts to the
+                        // literal "-" the user typed, rather than vanishing.
+                        MarkdownLists.performEdit(textView, replace: NSRange(location: lineRange.location, length: markerEnd), with: "-")
+                        textView.setSelectedRange(NSRange(location: lineRange.location + 1, length: 0))
                     } else {
                         MarkdownLists.performEdit(textView, replace: NSRange(location: lineRange.location, length: markerEnd), with: "")
                         textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
@@ -264,41 +284,58 @@ struct MarkdownLists {
             return insertAutoPair(open: replacementString, close: closeChar)
         }
 
-        // TAB: indent list items (skip in code blocks)
-        if replacementString == "\t" && !isInCodeBlock {
-            guard listsEnabled else { return true }
-            // A block selection (drag-selected lines) indents every line.
+        // TAB: indent. Inside a list it nests the item; elsewhere (plain text or
+        // code blocks) it inserts the raw indent unit. In spaces mode the unit is
+        // N spaces, so the document never gets a literal tab character.
+        if replacementString == "\t" {
+            let unit = MarkdownLists.indentUnit(for: textView)
+            let unitLen = (unit as NSString).length
+            let usesSpaces = unit != "\t"
+            let spacesPerLevel = MarkdownLists.indentWidth(for: textView)
+
+            // A block selection (drag-selected lines) indents every touched line.
             if affectedCharRange.length > 0 {
-                return MarkdownLists.adjustIndentation(textView, outdent: false) ? false : true
+                if (listsEnabled && !isInCodeBlock) || usesSpaces {
+                    return MarkdownLists.adjustIndentation(textView, outdent: false) ? false : true
+                }
+                return true
             }
+
             let nsText = textView.string as NSString
             let insertionLocation = affectedCharRange.location
+
+            // Outside a list (plain text / code block): insert the raw unit.
+            // A literal tab stays a tab; spaces mode inserts spaces instead.
+            let inList: Bool = {
+                guard listsEnabled && !isInCodeBlock else { return false }
+                let safeLoc = min(insertionLocation, nsText.length)
+                let lineRange = nsText.lineRange(for: NSRange(location: safeLoc, length: 0))
+                let line = nsText.substring(with: lineRange)
+                let full = NSRange(location: 0, length: line.utf16.count)
+                return MarkdownLists.listRegex.firstMatch(in: line, range: full) != nil
+                    || MarkdownLists.dashNoSpaceRegex.firstMatch(in: line, range: full) != nil
+            }()
+
+            if !inList {
+                guard usesSpaces else { return true }
+                MarkdownLists.performEdit(textView, replace: affectedCharRange, with: unit)
+                textView.setSelectedRange(NSRange(location: insertionLocation + unitLen, length: 0))
+                return false
+            }
+
             let safeLocTAB = min(affectedCharRange.location, nsText.length)
             let currentLineRange = nsText.lineRange(for: NSRange(location: safeLocTAB, length: 0))
             let currentLine = nsText.substring(with: currentLineRange)
-            if MarkdownLists.listRegex.firstMatch(in: currentLine, range: NSRange(location: 0, length: currentLine.utf16.count)) != nil {
-                if let wsMatch = MarkdownLists.leadingWhitespaceRegex.firstMatch(in: currentLine, range: NSRange(location: 0, length: currentLine.utf16.count)) {
-                    let ws = (currentLine as NSString).substring(with: wsMatch.range)
-                    let level = MarkdownLists.indentLevel(from: ws)
-                    if level >= MarkdownEditorConfiguration.default.lists.maximumNestingLevel {
-                        return false
-                    }
+            if let wsMatch = MarkdownLists.leadingWhitespaceRegex.firstMatch(in: currentLine, range: NSRange(location: 0, length: currentLine.utf16.count)) {
+                let ws = (currentLine as NSString).substring(with: wsMatch.range)
+                let level = MarkdownLists.indentLevel(from: ws, spacesPerLevel: spacesPerLevel)
+                if level >= MarkdownEditorConfiguration.default.lists.maximumNestingLevel {
+                    return false
                 }
-                MarkdownLists.performEdit(textView, replace: NSRange(location: currentLineRange.location, length: 0), with: "\t")
-                textView.setSelectedRange(NSRange(location: insertionLocation + 1, length: 0))
-                return false
             }
-            if MarkdownLists.dashNoSpaceRegex.firstMatch(in: currentLine, range: NSRange(location: 0, length: currentLine.utf16.count)) != nil {
-                if let wsMatch = MarkdownLists.leadingWhitespaceRegex.firstMatch(in: currentLine, range: NSRange(location: 0, length: currentLine.utf16.count)) {
-                    let ws = (currentLine as NSString).substring(with: wsMatch.range)
-                    let level = MarkdownLists.indentLevel(from: ws)
-                    if level >= MarkdownEditorConfiguration.default.lists.maximumNestingLevel { return false }
-                }
-                MarkdownLists.performEdit(textView, replace: NSRange(location: currentLineRange.location, length: 0), with: "\t")
-                textView.setSelectedRange(NSRange(location: insertionLocation + 1, length: 0))
-                return false
-            }
-            return true
+            MarkdownLists.performEdit(textView, replace: NSRange(location: currentLineRange.location, length: 0), with: unit)
+            textView.setSelectedRange(NSRange(location: insertionLocation + unitLen, length: 0))
+            return false
         }
 
         // SPACE: convert "-" or "1." to proper markers (skip in code blocks)
@@ -315,14 +352,14 @@ struct MarkdownLists {
                     let numberRange = match.range(at: 1)
                     let numberString = (currentLine as NSString).substring(with: numberRange)
                     let markerRange = NSRange(location: currentLineRange.location + match.range.location, length: match.range.length)
-                    MarkdownLists.performEdit(textView, replace: markerRange, with: "\t\(numberString). ")
+                    MarkdownLists.performEdit(textView, replace: markerRange, with: "\(numberString). ")
                     return false
                 }
                 if prevChar == "-" {
                     let beforePrevIndex = insertionLocation - 2
                     let isAtLineStart: Bool = (beforePrevIndex < 0) || nsText.substring(with: NSRange(location: beforePrevIndex, length: 1)) == "\n"
                     if isAtLineStart {
-                        MarkdownLists.performEdit(textView, replace: prevCharRange, with: "\t• ")
+                        MarkdownLists.performEdit(textView, replace: prevCharRange, with: "• ")
                         return false
                     }
                 }

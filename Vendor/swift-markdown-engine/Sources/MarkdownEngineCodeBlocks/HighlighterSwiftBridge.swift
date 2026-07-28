@@ -32,6 +32,9 @@ public final class HighlighterSwiftBridge: SyntaxHighlighter, @unchecked Sendabl
     private let highlighter: Highlighter?
     private let lightTheme: String
     private let darkTheme: String
+    /// When set, overrides the light/dark theme selection — used for an explicit
+    /// user-chosen theme independent of system appearance.
+    private var pinnedTheme: String?
     private let autoSwitchAppearance: Bool
     private let lightBackground: NSColor
     private let darkBackground: NSColor
@@ -97,9 +100,21 @@ public final class HighlighterSwiftBridge: SyntaxHighlighter, @unchecked Sendabl
         failedCache.removeAllObjects()
     }
 
+    /// Switches to an explicit highlight.js theme at runtime, overriding the
+    /// appearance-based selection. Re-renders by posting the appearance-change
+    /// notification the engine already observes.
+    public func setTheme(_ name: String) {
+        pinnedTheme = name
+        applyAppearanceTheme()
+        NotificationCenter.default.post(
+            name: .markdownEngineHighlighterDidChangeAppearance,
+            object: nil
+        )
+    }
+
     private func applyAppearanceTheme() {
         guard let highlighter else { return }
-        let theme = isDarkAppearance() ? darkTheme : lightTheme
+        let theme = pinnedTheme ?? (isDarkAppearance() ? darkTheme : lightTheme)
         if currentTheme != theme {
             currentTheme = theme
             highlighter.setTheme(theme)
@@ -117,7 +132,9 @@ public final class HighlighterSwiftBridge: SyntaxHighlighter, @unchecked Sendabl
     // MARK: - SyntaxHighlighter
 
     public var appearanceDidChangeNotification: Notification.Name? {
-        autoSwitchAppearance ? .markdownEngineHighlighterDidChangeAppearance : nil
+        // Always exposed so the engine re-renders on both automatic appearance
+        // swaps and explicit `setTheme(_:)` calls.
+        .markdownEngineHighlighterDidChangeAppearance
     }
 
     public func codeFont(size: CGFloat) -> NSFont {

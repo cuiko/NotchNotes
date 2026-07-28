@@ -207,17 +207,10 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             height: snappedMaxY - snappedY
         )
 
-        // Cut out the glyph-line span only (not the inner padding) so the
-        // selection highlight shows through exactly where the system draws it,
-        // leaving the padding filled with the code background.
-        var contentLines = textLineFragments
-        if contentLines.count > 1, let last = contentLines.last, last.characterRange.length == 0 {
-            contentLines.removeLast()
-        }
-        let glyphTop = contentLines.first.map { point.y + $0.typographicBounds.origin.y } ?? snappedY
-        let glyphBottom = contentLines.last.map { point.y + $0.typographicBounds.origin.y + $0.typographicBounds.height } ?? snappedMaxY
-
-        let selectionRects = selectionRectsInDrawCoordinates(drawPoint: point, cutTop: glyphTop, cutBottom: glyphBottom)
+        // Cut out the selection per visual line so the highlight shows through
+        // exactly where the system draws it, leaving the padding filled with the
+        // code background.
+        let selectionRects = selectionRectsInDrawCoordinates(drawPoint: point)
         // The text attribute is transparent (detection only); paint the box with
         // the highlighter's actual (opaque) code background here.
         let fillColor = (textLayoutManager?.textContainer?.textView as? NativeTextView)?
@@ -238,36 +231,63 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
     /// Returns active text-selection rectangles intersecting this fragment, in
     /// the same draw-relative coordinate system used by `drawCodeBlockBackground`.
-    private func selectionRectsInDrawCoordinates(drawPoint: CGPoint, cutTop: CGFloat, cutBottom: CGFloat) -> [CGRect] {
-        guard let tlm = textLayoutManager else { return [] }
-        var rects: [CGRect] = []
+    ///
+    /// Computed per visual line fragment: each line contributes at most one rect
+    /// spanning only the selected character sub-range and that line's own
+    /// vertical bounds. Deriving x/y from the line fragment (rather than pinning
+    /// every segment to the whole fragment's glyph span) keeps the cut-out
+    /// aligned when a single code paragraph soft-wraps across several rows with
+    /// different left insets.
+    private func selectionRectsInDrawCoordinates(drawPoint: CGPoint) -> [CGRect] {
+        guard let tlm = textLayoutManager,
+              let fragRange = fragmentNSRange,
+              let tcs = tlm.textContentManager as? NSTextContentStorage else { return [] }
 
-        let dx = drawPoint.x - layoutFragmentFrame.origin.x
-        let myRange = self.rangeInElement
-
+        // Selected character ranges intersecting this fragment, expressed
+        // fragment-local so they can be matched against each line fragment's
+        // characterRange (which is also fragment-local).
+        var selectedRanges: [NSRange] = []
         for selection in tlm.textSelections {
             for textRange in selection.textRanges {
-                let interStart = textRange.location.compare(myRange.location) == .orderedAscending
-                    ? myRange.location : textRange.location
-                let interEnd = textRange.endLocation.compare(myRange.endLocation) == .orderedDescending
-                    ? myRange.endLocation : textRange.endLocation
-                guard interStart.compare(interEnd) == .orderedAscending,
-                      let intersection = NSTextRange(location: interStart, end: interEnd) else { continue }
+                let selStart = tcs.offset(from: tcs.documentRange.location, to: textRange.location)
+                let selEnd = tcs.offset(from: tcs.documentRange.location, to: textRange.endLocation)
+                guard selStart != NSNotFound, selEnd != NSNotFound else { continue }
+                let interStart = max(selStart, fragRange.location)
+                let interEnd = min(selEnd, NSMaxRange(fragRange))
+                guard interEnd > interStart else { continue }
+                selectedRanges.append(NSRange(location: interStart - fragRange.location,
+                                              length: interEnd - interStart))
+            }
+        }
+        guard !selectedRanges.isEmpty else { return [] }
 
-                tlm.enumerateTextSegments(in: intersection, type: .selection, options: []) { _, segFrame, _, _ in
-                    // Take the selection x from the segment, but pin the vertical
-                    // span to the glyph lines (segFrame's own y uses a different
-                    // coordinate space) so the cut-out lands exactly on the
-                    // highlighted text and never on the inner padding.
-                    let drawRect = CGRect(
-                        x: segFrame.origin.x + dx,
-                        y: cutTop,
-                        width: segFrame.width,
-                        height: cutBottom - cutTop
-                    )
-                    rects.append(drawRect)
-                    return true
-                }
+        let containerWidth = tlm.textContainer?.size.width ?? layoutFragmentFrame.width
+        let rightEdge = drawPoint.x - layoutFragmentFrame.origin.x + containerWidth
+
+        var rects: [CGRect] = []
+        for lineFragment in textLineFragments {
+            let lineRange = lineFragment.characterRange
+            let lineEnd = lineRange.location + lineRange.length
+            guard lineRange.length > 0 else { continue }
+            let tb = lineFragment.typographicBounds
+            let lineY = drawPoint.y + tb.origin.y
+
+            for selected in selectedRanges {
+                let start = max(selected.location, lineRange.location)
+                let end = min(NSMaxRange(selected), lineEnd)
+                guard end > start else { continue }
+
+                let startX = drawPoint.x + tb.origin.x + lineFragment.locationForCharacter(at: start).x
+                // A selection that runs to (or past) the line's end also covers
+                // the trailing newline or soft-wrap, which the system highlights
+                // out to the container edge.
+                let reachesLineEnd = NSMaxRange(selected) >= lineEnd
+                let endX = reachesLineEnd
+                    ? rightEdge
+                    : drawPoint.x + tb.origin.x + lineFragment.locationForCharacter(at: end).x
+                guard endX > startX else { continue }
+
+                rects.append(CGRect(x: startX, y: lineY, width: endX - startX, height: tb.height))
             }
         }
         return rects

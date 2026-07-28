@@ -150,7 +150,7 @@ final class EditorInteractionState: ObservableObject {
         case .quote:
             prefixSelectedLines(with: "> ", in: textView)
         case .unorderedList:
-            prefixSelectedLines(with: "- ", in: textView)
+            prefixSelectedLines(with: "• ", in: textView)
         case .orderedList:
             prefixSelectedLines(in: textView) { index in "\(index + 1). " }
         case .todoList:
@@ -414,6 +414,11 @@ final class EditorInteractionState: ObservableObject {
 
             let documentEnd = textLayoutManager.documentRange.endLocation
             textLayoutManager.ensureLayout(for: NSTextRange(location: documentEnd))
+
+            // A whole-document re-layout leaves tall block images (image embeds)
+            // mispositioned — pushed far below their line. Re-laying out each
+            // image's own paragraph settles it back into place.
+            reensureBlockImageParagraphs(in: textView, layoutManager: textLayoutManager)
         }
 
         if let scrollView = textView.enclosingScrollView {
@@ -434,6 +439,37 @@ final class EditorInteractionState: ObservableObject {
         textView.needsDisplay = true
         textView.setNeedsDisplay(textView.visibleRect)
         textView.window?.displayIfNeeded()
+    }
+
+    /// Re-lays out each paragraph that carries a block image so a preceding
+    /// whole-document layout pass doesn't leave the (tall) image mispositioned.
+    /// Uses the engine's raw attribute keys (internal to the engine module).
+    private func reensureBlockImageParagraphs(in textView: NSTextView, layoutManager: NSTextLayoutManager) {
+        guard let storage = textView.textStorage,
+              let contentStorage = layoutManager.textContentManager as? NSTextContentStorage else {
+            return
+        }
+
+        let imageKey = NSAttributedString.Key("LatexRenderedImage")
+        let blockKey = NSAttributedString.Key("LatexIsBlock")
+        let nsText = storage.string as NSString
+        let fullRange = NSRange(location: 0, length: storage.length)
+
+        storage.enumerateAttribute(imageKey, in: fullRange, options: []) { value, range, _ in
+            guard value != nil,
+                  storage.attribute(blockKey, at: range.location, effectiveRange: nil) as? Bool == true else {
+                return
+            }
+            let paragraph = nsText.paragraphRange(for: range)
+            let docStart = contentStorage.documentRange.location
+            guard let start = contentStorage.location(docStart, offsetBy: paragraph.location),
+                  let end = contentStorage.location(start, offsetBy: paragraph.length),
+                  let textRange = NSTextRange(location: start, end: end) else {
+                return
+            }
+            layoutManager.invalidateLayout(for: textRange)
+            layoutManager.ensureLayout(for: textRange)
+        }
     }
 
     private func retryFocus(searchingIn rootView: NSView?) {

@@ -278,6 +278,11 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             textView.selectedTextAttributes = [.backgroundColor: configuration.theme.selectionColor]
         }
         textView.insertionPointColor = isEditable ? context.coordinator.configuration.theme.caretColor : .clear
+        if context.coordinator.configuration.indent.useSpaces != configuration.indent.useSpaces
+            || context.coordinator.configuration.indent.spaceCount != configuration.indent.spaceCount {
+            context.coordinator.configuration.indent = configuration.indent
+            (nsView.documentView as? NativeTextView)?.configuration.indent = configuration.indent
+        }
         let fontChanged = (context.coordinator.fontName != fontName) || (context.coordinator.fontSize != fontSize)
         if let pendingInlineReplacement {
             if pendingInlineReplacement.documentId == documentId,

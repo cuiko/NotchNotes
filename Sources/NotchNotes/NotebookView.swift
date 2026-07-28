@@ -1,6 +1,15 @@
 import AppKit
 import MarkdownEngine
+import MarkdownEngineCodeBlocks
 import SwiftUI
+
+/// HighlighterSwift (highlight.js) theme used for fenced code blocks. Change
+/// this to any bundled highlight.js theme name (e.g. "github-dark",
+/// "atom-one-dark", "nord") to recolor code blocks.
+private let codeBlockHighlightTheme = "atom-one-dark"
+
+/// Opaque background painted behind fenced code blocks.
+private let codeBlockBackgroundColor = NSColor(srgbRed: 0.16, green: 0.16, blue: 0.19, alpha: 1)
 
 @MainActor
 final class DrawerState: ObservableObject {
@@ -137,6 +146,7 @@ struct NotebookView: View {
                 MarkdownEditorPanel(
                     store: store,
                     imageStore: imageStore,
+                    settingsStore: settingsStore,
                     editorInteractionState: editorInteractionState,
                     size: editorSize
                 )
@@ -220,6 +230,7 @@ struct NotebookView: View {
 struct MarkdownEditorPanel: View {
     @ObservedObject var store: NoteStore
     let imageStore: LocalImageStore
+    @ObservedObject var settingsStore: AppSettingsStore
     let editorInteractionState: EditorInteractionState
     let size: CGSize
 
@@ -231,7 +242,9 @@ struct MarkdownEditorPanel: View {
             MarkdownNoteEditor(
                 store: store,
                 imageStore: imageStore,
-                editorInteractionState: editorInteractionState
+                settingsStore: settingsStore,
+                editorInteractionState: editorInteractionState,
+                maxImageHeight: editorHeight
             )
             .frame(width: size.width, height: editorHeight)
 
@@ -655,7 +668,9 @@ struct CompactNotchView: View {
 struct MarkdownNoteEditor: View {
     @ObservedObject var store: NoteStore
     let imageStore: LocalImageStore
+    @ObservedObject var settingsStore: AppSettingsStore
     let editorInteractionState: EditorInteractionState
+    var maxImageHeight: CGFloat = .greatestFiniteMagnitude
     @State private var isWikiLinkActive = false
     @State private var pendingInlineReplacement: InlineReplacementRequest?
 
@@ -709,7 +724,7 @@ struct MarkdownNoteEditor: View {
 
         let services = MarkdownEditorServices(
             images: imageStore,
-            syntaxHighlighter: CodeBlockSyntaxHighlighter()
+            syntaxHighlighter: Self.sharedCodeHighlighter
         )
 
         return MarkdownEditorConfiguration(
@@ -717,7 +732,16 @@ struct MarkdownNoteEditor: View {
             services: services,
             codeBlock: CodeBlockStyle(paragraphSpacing: 8),
             lists: ListStyle(indentPerLevel: 40, extraLineHeight: 1),
-            imageEmbed: ImageEmbedStyle(fallbackMaxWidth: 440, paragraphSpacing: 6, imageGap: 6),
+            indent: IndentStyle(
+                useSpaces: settingsStore.indentUsesSpaces,
+                spaceCount: settingsStore.indentSpaceCount
+            ),
+            imageEmbed: ImageEmbedStyle(
+                fallbackMaxWidth: 440,
+                maxHeight: max(120, maxImageHeight - 48),
+                paragraphSpacing: 6,
+                imageGap: 6
+            ),
             checkbox: CheckboxStyle(minimumExtraSpacing: 8),
             overscroll: OverscrollPolicy(percent: 0, maxPoints: 0, minPoints: 0),
             dragSelection: DragSelectionPolicy(movementThreshold: 8, edgeTriggerDistance: 8, scrollStepPerTick: 4, ticksPerSecond: 30),
@@ -727,20 +751,18 @@ struct MarkdownNoteEditor: View {
     }
 }
 
-/// Gives fenced code blocks a visible background that stands out from the dark
-/// editor background. No language highlighting — just a distinguishable box.
-struct CodeBlockSyntaxHighlighter: SyntaxHighlighter {
-    func codeFont(size: CGFloat) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-    }
-
-    func backgroundColor() -> NSColor {
-        NSColor(srgbRed: 0.16, green: 0.16, blue: 0.19, alpha: 1)
-    }
-
-    func highlight(code: String, language: String?) -> NSAttributedString? { nil }
-
-    var appearanceDidChangeNotification: Notification.Name? { nil }
+extension MarkdownNoteEditor {
+    /// Shared syntax highlighter for fenced code blocks. Built once (its
+    /// JavaScriptCore-backed highlighter is expensive to create and caches
+    /// results), pinned to a dark theme since the editor is always dark.
+    static let sharedCodeHighlighter = HighlighterSwiftBridge(
+        lightTheme: codeBlockHighlightTheme,
+        darkTheme: codeBlockHighlightTheme,
+        autoSwitchAppearance: false,
+        lightBackground: codeBlockBackgroundColor,
+        darkBackground: codeBlockBackgroundColor,
+        preferredFontNames: ["SF Mono", "Menlo"]
+    )
 }
 
 struct TopAttachedRoundedShape: Shape {

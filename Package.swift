@@ -17,7 +17,8 @@ let package = Package(
         .executableTarget(
             name: "NotchNotes",
             dependencies: [
-                .product(name: "MarkdownEngine", package: "swift-markdown-engine")
+                .product(name: "MarkdownEngine", package: "swift-markdown-engine"),
+                .product(name: "MarkdownEngineCodeBlocks", package: "swift-markdown-engine")
             ],
             path: "Sources/NotchNotes"
         )

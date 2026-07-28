@@ -397,6 +397,7 @@ extension NativeTextViewCoordinator {
         let caretLoc = textView.selectedRange().location
         let lineRange = nsText.lineRange(for: NSRange(location: caretLoc, length: 0))
         let line = nsText.substring(with: lineRange)
+        let indentWidth = MarkdownLists.indentWidth(for: textView)
 
         let pattern = #"^([\t ]*)((\d+)\.|-|•)\s"#
         let regex = try? NSRegularExpression(pattern: pattern)
@@ -405,7 +406,7 @@ extension NativeTextViewCoordinator {
             let wsRangeLocal = match.range(at: 1)
             let wsString = (line as NSString).substring(with: wsRangeLocal)
             let wsDocStart = lineRange.location + wsRangeLocal.location
-            let depth = MarkdownLists.indentLevel(from: wsString)
+            let depth = MarkdownLists.indentLevel(from: wsString, spacesPerLevel: indentWidth)
             if depth <= 1 {
                 return true
             }
@@ -418,9 +419,9 @@ extension NativeTextViewCoordinator {
                 } else {
                     var removeCount = 0
                     for ch in wsString {
-                        if ch == " " && removeCount < 2 { removeCount += 1 } else { break }
+                        if ch == " " && removeCount < indentWidth { removeCount += 1 } else { break }
                     }
-                    if removeCount == 0 { removeCount = min(2, wsRangeLocal.length) }
+                    if removeCount == 0 { removeCount = min(indentWidth, wsRangeLocal.length) }
                     MarkdownLists.performEdit(textView, replace: NSRange(location: wsDocStart, length: removeCount), with: "")
                     textView.setSelectedRange(NSRange(location: max(0, caretLoc - removeCount), length: 0))
                     return true

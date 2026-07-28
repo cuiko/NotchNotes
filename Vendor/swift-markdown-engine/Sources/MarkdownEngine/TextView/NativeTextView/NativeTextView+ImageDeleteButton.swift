@@ -23,10 +23,34 @@ final class ImageDeleteButton: NSButton {
     }
 }
 
+/// Edit button overlaid on a hovered image — reveals the embed's `![[...]]`
+/// source for editing. Same cursor handling as ``ImageDeleteButton``.
+final class ImageEditButton: NSButton {
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+}
+
+/// Zoom button overlaid on a hovered image — opens a full-screen preview.
+/// Same cursor handling as ``ImageDeleteButton``.
+final class ImageZoomButton: NSButton {
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+}
+
 extension NativeTextView {
 
-    /// Re-evaluated on every `mouseMoved`: show the trash button over the
-    /// rendered image under the pointer, or hide it.
+    /// Re-evaluated on every `mouseMoved`: show the edit + trash buttons over the
+    /// rendered image under the pointer, or hide them.
     func updateImageDeleteButton(for event: NSEvent) {
         guard let hit = imageEmbedHit(at: event) else {
             hideImageDeleteButton()
@@ -34,22 +58,38 @@ extension NativeTextView {
         }
 
         imageDeleteEmbedRange = hit.embedRange
-        let button = imageDeleteButton ?? makeImageDeleteButton()
-        if button.superview !== self { addSubview(button) }
 
         let size: CGFloat = 22
         let inset: CGFloat = 6
-        button.frame = CGRect(
+        let gap: CGFloat = 6
+
+        // Delete button is intentionally not shown for now (kept in code); only
+        // the edit + zoom buttons occupy the image's top-right corner.
+        let editButton = imageEditButton ?? makeImageEditButton()
+        if editButton.superview !== self { addSubview(editButton) }
+        editButton.frame = CGRect(
             x: hit.imageRect.maxX - size - inset,
             y: hit.imageRect.minY + inset,
             width: size,
             height: size
         )
-        button.isHidden = false
+        editButton.isHidden = false
+
+        let zoomButton = imageZoomButton ?? makeImageZoomButton()
+        if zoomButton.superview !== self { addSubview(zoomButton) }
+        zoomButton.frame = CGRect(
+            x: hit.imageRect.maxX - size * 2 - inset - gap,
+            y: hit.imageRect.minY + inset,
+            width: size,
+            height: size
+        )
+        zoomButton.isHidden = false
     }
 
     func hideImageDeleteButton() {
         imageDeleteButton?.isHidden = true
+        imageEditButton?.isHidden = true
+        imageZoomButton?.isHidden = true
         imageDeleteEmbedRange = nil
     }
 
@@ -104,6 +144,18 @@ extension NativeTextView {
         return button.frame.contains(convert(event.locationInWindow, from: nil))
     }
 
+    /// True while the pointer is over the visible edit button (same cursor role).
+    func isPointOverImageEditButton(_ event: NSEvent) -> Bool {
+        guard let button = imageEditButton, !button.isHidden else { return false }
+        return button.frame.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    /// True while the pointer is over the visible zoom button (same cursor role).
+    func isPointOverImageZoomButton(_ event: NSEvent) -> Bool {
+        guard let button = imageZoomButton, !button.isHidden else { return false }
+        return button.frame.contains(convert(event.locationInWindow, from: nil))
+    }
+
     private func enclosingImageEmbedRange(at index: Int, in text: NSString) -> NSRange? {
         let paragraph = text.paragraphRange(for: NSRange(location: index, length: 0))
         var found: NSRange?
@@ -132,6 +184,114 @@ extension NativeTextView {
         button.action = #selector(deleteHoveredImageEmbed)
         imageDeleteButton = button
         return button
+    }
+
+    private func makeImageEditButton() -> NSButton {
+        let button = ImageEditButton(frame: .zero)
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.title = ""
+        button.image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: "Edit image source")
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = .white
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        button.layer?.cornerRadius = 5
+        button.toolTip = "Edit this block"
+        button.target = self
+        button.action = #selector(editHoveredImageEmbed)
+        imageEditButton = button
+        return button
+    }
+
+    private func makeImageZoomButton() -> NSButton {
+        let button = ImageZoomButton(frame: .zero)
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.title = ""
+        button.image = Self.cornerBracketsImage(side: 13, lineWidth: 1.6, cornerLength: 3, inset: 1)
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = .white
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        button.layer?.cornerRadius = 5
+        button.toolTip = "Zoom"
+        button.target = self
+        button.action = #selector(zoomHoveredImageEmbed)
+        imageZoomButton = button
+        return button
+    }
+
+    /// A "fullscreen" glyph drawn as four right-angle corner brackets. Template
+    /// image so the button's `contentTintColor` colors it.
+    private static func cornerBracketsImage(side: CGFloat, lineWidth: CGFloat, cornerLength: CGFloat, inset: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let path = NSBezierPath()
+            path.lineWidth = lineWidth
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+
+            let lo = inset
+            let hi = side - inset
+            let len = cornerLength
+
+            // Bottom-left
+            path.move(to: NSPoint(x: lo, y: lo + len))
+            path.line(to: NSPoint(x: lo, y: lo))
+            path.line(to: NSPoint(x: lo + len, y: lo))
+            // Bottom-right
+            path.move(to: NSPoint(x: hi - len, y: lo))
+            path.line(to: NSPoint(x: hi, y: lo))
+            path.line(to: NSPoint(x: hi, y: lo + len))
+            // Top-right
+            path.move(to: NSPoint(x: hi, y: hi - len))
+            path.line(to: NSPoint(x: hi, y: hi))
+            path.line(to: NSPoint(x: hi - len, y: hi))
+            // Top-left
+            path.move(to: NSPoint(x: lo + len, y: hi))
+            path.line(to: NSPoint(x: lo, y: hi))
+            path.line(to: NSPoint(x: lo, y: hi - len))
+
+            NSColor.black.setStroke()
+            path.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// Opens the hovered embed's image in a full-screen preview.
+    @objc private func zoomHoveredImageEmbed() {
+        guard let storage = textStorage, let embedRange = imageDeleteEmbedRange else { return }
+        let nsText = storage.string as NSString
+        guard NSMaxRange(embedRange) <= nsText.length else { hideImageDeleteButton(); return }
+
+        let embedText = nsText.substring(with: embedRange)
+        guard let reference = ImageEmbedReference.parse(markdown: embedText),
+              let image = EmbeddedImageCache.shared.image(for: reference, services: configuration.services) else {
+            return
+        }
+
+        ImageLightbox.present(image, on: window?.screen)
+    }
+
+    /// Reveals the hovered embed's `![[...]]` source and selects it, so the user
+    /// can edit the reference. Selecting the range activates the token, which the
+    /// styler renders as visible source instead of the collapsed image.
+    @objc private func editHoveredImageEmbed() {
+        guard let storage = textStorage, let embedRange = imageDeleteEmbedRange else { return }
+        let nsText = storage.string as NSString
+        guard NSMaxRange(embedRange) <= nsText.length else { hideImageDeleteButton(); return }
+
+        window?.makeFirstResponder(self)
+        setSelectedRange(embedRange)
+        hideImageDeleteButton()
+
+        if let coord = delegate as? NativeTextViewCoordinator {
+            let para = nsText.paragraphRange(for: embedRange)
+            coord.restyleParagraphs([para], in: self)
+        }
+        scrollRangeToVisible(embedRange)
     }
 
     @objc private func deleteHoveredImageEmbed() {

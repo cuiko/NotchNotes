@@ -62,6 +62,19 @@ final class NotchPanelController: NSObject {
         store.imagePruner = { [imageStore] remainingTexts in
             imageStore.pruneImages(referencedIn: remainingTexts)
         }
+        settingsStore.onIndentChange = { [store, editorInteractionState] oldSpaces, oldCount, newSpaces, newCount in
+            store.reindentAllTabs(
+                fromUseSpaces: oldSpaces, fromCount: oldCount,
+                toUseSpaces: newSpaces, toCount: newCount
+            )
+            // Re-lay out so the migrated active-tab text renders immediately.
+            editorInteractionState.requestLayoutRefresh(resetScroll: false)
+        }
+        // Apply the persisted code-block theme, then switch on future changes.
+        MarkdownNoteEditor.sharedCodeHighlighter.setTheme(settingsStore.codeTheme)
+        settingsStore.onCodeThemeChange = { theme in
+            MarkdownNoteEditor.sharedCodeHighlighter.setTheme(theme)
+        }
         configurePanel(hotPanel)
         configurePanel(drawerPanel)
         rebuildContent()

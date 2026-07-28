@@ -14,7 +14,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 238, height: 290)
+    private let contentSize = NSSize(width: 258, height: 486)
 
     init(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
@@ -223,6 +223,97 @@ struct SettingsPopoverView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                Text("Indentation")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.50))
+
+                HStack(spacing: 8) {
+                    indentButton(title: "Tab", icon: "arrow.right.to.line", selected: !settingsStore.indentUsesSpaces) {
+                        settingsStore.indentUsesSpaces = false
+                    }
+                    indentButton(title: "Spaces", icon: "space", selected: settingsStore.indentUsesSpaces) {
+                        settingsStore.indentUsesSpaces = true
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Text("Spaces per tab")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.82))
+
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 2) {
+                        ForEach([2, 4], id: \.self) { count in
+                            indentCountSegment(count, selected: settingsStore.indentSpaceCount == count) {
+                                settingsStore.indentSpaceCount = count
+                            }
+                        }
+                    }
+                    .padding(2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.white.opacity(0.06))
+                    )
+                }
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.055))
+                )
+                .opacity(settingsStore.indentUsesSpaces ? 1 : 0.35)
+                .disabled(!settingsStore.indentUsesSpaces)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Code Block")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.50))
+
+                HStack(spacing: 10) {
+                    Text("Theme")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.82))
+
+                    Spacer(minLength: 0)
+
+                    Menu {
+                        ForEach(AppSettingsStore.codeThemes) { theme in
+                            Button {
+                                settingsStore.codeTheme = theme.id
+                            } label: {
+                                if settingsStore.codeTheme == theme.id {
+                                    Label(theme.name, systemImage: "checkmark")
+                                } else {
+                                    Text(theme.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(currentCodeThemeName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.055))
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("General")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.50))
@@ -253,7 +344,7 @@ struct SettingsPopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 238, height: 290)
+        .frame(width: 258, height: 486)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
@@ -266,6 +357,40 @@ struct SettingsPopoverView: View {
             appeared = true
             settingsStore.refreshLaunchAtLoginStatus()
         }
+    }
+
+    private func indentButton(title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+        }
+        .buttonStyle(PopoverTriggerButtonStyle(isSelected: selected))
+    }
+
+    private var currentCodeThemeName: String {
+        AppSettingsStore.codeThemes.first { $0.id == settingsStore.codeTheme }?.name ?? settingsStore.codeTheme
+    }
+
+    private func indentCountSegment(_ count: Int, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text("\(count)")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(selected ? 0.95 : 0.5))
+                .frame(width: 28, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.white.opacity(selected ? 0.16 : 0))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 
     private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {

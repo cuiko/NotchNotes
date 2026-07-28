@@ -92,7 +92,11 @@ final class NoteStore: ObservableObject {
             initialTabs = storedTabs
         }
 
-        tabs = initialTabs
+        tabs = initialTabs.map { tab in
+            var tab = tab
+            tab.text = Self.normalizingBulletMarkers(in: tab.text)
+            return tab
+        }
 
         let activeIDString = UserDefaults.standard.string(forKey: Self.activeTabIDKey)
         let storedActiveID = activeIDString.flatMap(UUID.init(uuidString:))
@@ -108,9 +112,42 @@ final class NoteStore: ObservableObject {
     }
 
     func updateText(_ nextText: String) {
+        // Note: bullet-marker normalization runs only on load (below), never
+        // here — rewriting text mid-edit resets the caret to the document end.
         tabs[activeIndex].text = nextText
         clampSelection(for: tabs[activeIndex].id)
         save()
+    }
+
+    /// Rewrites leading `-`/`*`/`+` bullet markers to `•` so unordered lists
+    /// render as dots regardless of how they were entered (typed, pasted,
+    /// toolbar). The replacement is one character for one, so caret offsets are
+    /// preserved. Lines inside fenced code blocks are left untouched.
+    static func normalizingBulletMarkers(in text: String) -> String {
+        guard text.contains("-") else { return text }
+
+        var inFence = false
+        var changed = false
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                return line
+            }
+            guard !inFence else { return line }
+
+            var chars = Array(line)
+            var i = 0
+            while i < chars.count, chars[i] == " " || chars[i] == "\t" { i += 1 }
+            guard i < chars.count, chars[i] == "-" else { return line }
+            // Must be a single `-` followed by whitespace (a real bullet, not a
+            // horizontal rule like `---`).
+            guard i + 1 < chars.count, chars[i + 1] == " " || chars[i + 1] == "\t" else { return line }
+
+            chars[i] = "•"
+            changed = true
+            return String(chars)
+        }
+        return changed ? lines.joined(separator: "\n") : text
     }
 
     func clear() {
@@ -127,6 +164,59 @@ final class NoteStore: ObservableObject {
 
     func removeActiveTab() {
         removeTab(activeTabID)
+    }
+
+    /// Rewrites the leading indentation of every line in every tab to match a
+    /// new indent style — used when the Settings indent option changes so old
+    /// notes stop mixing tabs and spaces. Only leading whitespace is touched.
+    func reindentAllTabs(fromUseSpaces: Bool, fromCount: Int, toUseSpaces: Bool, toCount: Int) {
+        var changed = false
+        for index in tabs.indices {
+            let converted = Self.reindenting(
+                tabs[index].text,
+                fromUseSpaces: fromUseSpaces, fromCount: fromCount,
+                toUseSpaces: toUseSpaces, toCount: toCount
+            )
+            guard converted != tabs[index].text else { continue }
+            tabs[index].text = converted
+            clampSelection(for: tabs[index].id)
+            changed = true
+        }
+        if changed { save() }
+    }
+
+    /// Converts each line's leading whitespace from one indent style to another.
+    ///
+    /// The whole leading run is scored as a fractional indent level — each tab is
+    /// one level and each space is `1 / oldWidth` of a level — then rounded to
+    /// the nearest whole level and re-emitted with the new unit. Rounding to a
+    /// whole level (rather than keeping leftover spaces) keeps indentation tidy
+    /// and makes the two directions symmetric, so tab↔spaces round-trips cleanly.
+    /// It also counts every tab and space regardless of order, so a mixed
+    /// "spaces then tab" run never drops characters.
+    static func reindenting(
+        _ text: String,
+        fromUseSpaces: Bool, fromCount: Int,
+        toUseSpaces: Bool, toCount: Int
+    ) -> String {
+        let oldWidth = Double(max(1, fromCount))
+        let newUnit = toUseSpaces ? String(repeating: " ", count: max(1, toCount)) : "\t"
+
+        let lines = text.components(separatedBy: "\n")
+        let converted = lines.map { line -> String in
+            let leadingCount = line.prefix { $0 == " " || $0 == "\t" }.count
+            guard leadingCount > 0 else { return line }
+            let whitespace = line.prefix(leadingCount)
+            let rest = String(line.dropFirst(leadingCount))
+
+            let tabs = whitespace.filter { $0 == "\t" }.count
+            let spaces = whitespace.filter { $0 == " " }.count
+            let levelValue = Double(tabs) + Double(spaces) / oldWidth
+            let levels = Int(levelValue.rounded())
+
+            return String(repeating: newUnit, count: levels) + rest
+        }
+        return converted.joined(separator: "\n")
     }
 
     func cleanFinishedTodos(for id: UUID) {

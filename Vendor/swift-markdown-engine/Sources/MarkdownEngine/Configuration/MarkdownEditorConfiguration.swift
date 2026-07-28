@@ -32,6 +32,7 @@ public struct MarkdownEditorConfiguration: Sendable {
     public var codeBlock: CodeBlockStyle
     public var inlineCode: InlineCodeStyle
     public var lists: ListStyle
+    public var indent: IndentStyle
     public var headings: HeadingStyle
     public var imageEmbed: ImageEmbedStyle
     public var blockLatex: BlockLatexStyle
@@ -52,6 +53,7 @@ public struct MarkdownEditorConfiguration: Sendable {
         codeBlock: CodeBlockStyle = .default,
         inlineCode: InlineCodeStyle = .default,
         lists: ListStyle = .default,
+        indent: IndentStyle = .default,
         headings: HeadingStyle = .default,
         imageEmbed: ImageEmbedStyle = .default,
         blockLatex: BlockLatexStyle = .default,
@@ -71,6 +73,7 @@ public struct MarkdownEditorConfiguration: Sendable {
         self.codeBlock = codeBlock
         self.inlineCode = inlineCode
         self.lists = lists
+        self.indent = indent
         self.headings = headings
         self.imageEmbed = imageEmbed
         self.blockLatex = blockLatex
@@ -237,6 +240,34 @@ public struct ListStyle: Sendable {
     public static let `default` = ListStyle()
 }
 
+// MARK: - Indentation
+
+/// How the Tab key and list nesting indent text: a literal tab character, or a
+/// fixed number of spaces.
+public struct IndentStyle: Sendable {
+    /// When `true`, indentation inserts `spaceCount` spaces instead of a tab.
+    public var useSpaces: Bool
+    /// Number of spaces per indent level when `useSpaces` is `true`.
+    public var spaceCount: Int
+
+    public init(useSpaces: Bool = false, spaceCount: Int = 4) {
+        self.useSpaces = useSpaces
+        self.spaceCount = max(1, spaceCount)
+    }
+
+    /// The string inserted for one indent level.
+    public var unit: String {
+        useSpaces ? String(repeating: " ", count: spaceCount) : "\t"
+    }
+
+    /// Number of characters one indent level spans (spaces count, or 1 for tab).
+    public var width: Int {
+        useSpaces ? spaceCount : 1
+    }
+
+    public static let `default` = IndentStyle()
+}
+
 // MARK: - Headings
 
 /// Per-level heading metrics. Defaults follow the historical Nodes ratios,
@@ -278,6 +309,9 @@ public struct ImageEmbedStyle: Sendable {
     public var fallbackMaxWidth: CGFloat
     /// Sanity bound — container widths above this are treated as invalid.
     public var unreasonableMaxWidth: CGFloat
+    /// Maximum display height (points). Images taller than this are scaled down
+    /// so they never exceed the visible editor area. Defaults to no limit.
+    public var maxHeight: CGFloat
     /// Vertical paragraph spacing above/below the image paragraph.
     public var paragraphSpacing: CGFloat
     /// Gap between the source line and the rendered image (visibleSource mode).
@@ -287,12 +321,14 @@ public struct ImageEmbedStyle: Sendable {
         minimumWidth: CGFloat = 50,
         fallbackMaxWidth: CGFloat = 650,
         unreasonableMaxWidth: CGFloat = 1_000_000,
+        maxHeight: CGFloat = .greatestFiniteMagnitude,
         paragraphSpacing: CGFloat = 8,
         imageGap: CGFloat = 8
     ) {
         self.minimumWidth = minimumWidth
         self.fallbackMaxWidth = fallbackMaxWidth
         self.unreasonableMaxWidth = unreasonableMaxWidth
+        self.maxHeight = maxHeight
         self.paragraphSpacing = paragraphSpacing
         self.imageGap = imageGap
     }
