@@ -17,6 +17,14 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp ".build/release/NotchNotes" "$MACOS_DIR/NotchNotes"
 
+# Copy SwiftPM resource bundles (e.g. HighlighterSwift's highlight.js + theme
+# CSS) into Resources so `Bundle.module` can find them at runtime.
+shopt -s nullglob
+for bundle in "$ROOT_DIR"/.build/release/*.bundle; do
+  cp -R "$bundle" "$RESOURCES_DIR/"
+done
+shopt -u nullglob
+
 if [[ -f "$SOURCE_ICON" ]]; then
   TMP_DIR="$(mktemp -d)"
   ICONSET_DIR="$TMP_DIR/AppIcon.iconset"
@@ -52,9 +60,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.3</string>
+  <string>0.2.4</string>
   <key>CFBundleVersion</key>
-  <string>5</string>
+  <string>6</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>

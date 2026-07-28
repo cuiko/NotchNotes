@@ -9,6 +9,39 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.4
+
+### Added
+- **Code block copy button** — hovering a fenced code block shows a copy
+  button at its top-right that puts the block's code on the pasteboard.
+- **Code block syntax highlighting** — fenced code blocks are highlighted via
+  HighlighterSwift (highlight.js). A *Code Block → Theme* picker in Settings
+  chooses between One Dark, GitHub Dark, Monokai, and Dracula.
+- **Image edit & zoom buttons** — hovering a rendered image shows an *edit*
+  button that reveals its `![[…]]` source and a *zoom* button that opens a
+  full-screen, centered preview over a dim backdrop (click or Esc to close).
+- **Indentation setting** — choose Tab or Spaces (2 or 4) under *Settings →
+  Indentation*. Switching converts existing document indentation to match.
+- **Context-aware Select All** — `⌘A` inside a code block selects the block's
+  code, inside a blockquote selects the quote, and inside a list selects the
+  current item; pressing it again selects the whole document.
+
+### Changed
+- **Unordered lists render as bullets (•)** — the toolbar, typing, and existing
+  `-` lists all show dots; typing `- ` no longer adds a leading indent.
+- **Oversized inline images scale to fit** the drawer; view them at full size
+  via the zoom button.
+
+### Fixed
+- **Right-click Heading and Lists** now apply to every selected line instead of
+  only the first.
+- **Code block selection** highlight is aligned per line while drag-selecting.
+- **Tall image embeds** no longer render mispositioned far below their line.
+- **Image source flash** — the `![[…]]` source no longer flashes when switching
+  tabs.
+- **Bullet revert** — deleting an auto-converted bullet's content turns `•`
+  back into `-`.
+
 ## v0.2.3
 
 ### Fixed
