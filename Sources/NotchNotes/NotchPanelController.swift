@@ -4,12 +4,16 @@ import SwiftUI
 @MainActor
 final class NotchPanel: NSPanel {
     var onMouseEvent: ((NSEvent) -> Void)?
+    /// Given a mouse event, returns true when it was consumed for edge-resizing
+    /// (so it should not reach the editor content).
+    var resizeHandler: ((NSEvent) -> Bool)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown || event.type == .leftMouseDragged || event.type == .leftMouseUp {
+            if resizeHandler?(event) == true { return }
             onMouseEvent?(event)
         }
 
@@ -31,7 +35,7 @@ final class NotchPanelController: NSObject {
     private let imageStore = LocalImageStore()
     private let drawerState = DrawerState()
     private let editorInteractionState = EditorInteractionState()
-    private lazy var settingsPopoverController = SettingsPopoverController(settingsStore: settingsStore)
+    private lazy var settingsPopoverController = SettingsPopoverController(settingsStore: settingsStore, noteStore: store)
     private let hotPanel: NotchPanel
     private let drawerPanel: NotchPanel
     private var hostingView: NSHostingView<NotebookView>?
@@ -43,6 +47,20 @@ final class NotchPanelController: NSObject {
     private var isExpanded = false
     private var activeMenuTrackingCount = 0
     private var collapseTask: DispatchWorkItem?
+
+    // MARK: Edge-resize state
+    private enum ResizeEdge { case left, right, bottom, bottomLeft, bottomRight }
+    private var resizeEdge: ResizeEdge?
+    private var resizeStartMouse: NSPoint = .zero
+    private var resizeStartSize: NSSize = .zero
+    private var didShowResizeCursor = false
+    /// After a resize ends, suppress hover-out collapse until this time so the
+    /// drawer doesn't vanish if the pointer ended up outside it.
+    private var resizeGraceUntil: Date = .distantPast
+    private static let resizeEdgeThreshold: CGFloat = 14
+    private static let resizeGraceInterval: TimeInterval = 1.0
+    private static let drawerWidthKey = "notchNotes.drawerWidth"
+    private static let drawerHeightKey = "notchNotes.drawerHeight"
 
     override init() {
         hotPanel = NotchPanel(
@@ -75,8 +93,12 @@ final class NotchPanelController: NSObject {
         settingsStore.onCodeThemeChange = { theme in
             MarkdownNoteEditor.sharedCodeHighlighter.setTheme(theme)
         }
+        loadPersistedDrawerSize()
         configurePanel(hotPanel)
         configurePanel(drawerPanel)
+        drawerPanel.resizeHandler = { [weak self] event in
+            self?.handleDrawerResize(event) ?? false
+        }
         rebuildContent()
         startMousePolling()
         observeScreenChanges()
@@ -183,7 +205,9 @@ final class NotchPanelController: NSObject {
         }
 
         let host = FirstMouseHostingView(rootView: view)
-        host.translatesAutoresizingMaskIntoConstraints = false
+        // Fill the panel and track its size so growing the window (edge-resize)
+        // doesn't leave the content pinned to the bottom, gapping at the top.
+        host.autoresizingMask = [.width, .height]
         host.wantsLayer = true
         host.layer?.masksToBounds = true
         drawerPanel.contentView = host
@@ -279,7 +303,9 @@ final class NotchPanelController: NSObject {
     }
 
     @objc private func mousePollingTick(_ timer: Timer) {
-        handleMouseLocation(NSEvent.mouseLocation)
+        let location = NSEvent.mouseLocation
+        updateResizeCursor(globalPoint: location)
+        handleMouseLocation(location)
     }
 
     @objc private func menuTrackingDidBegin(_ notification: Notification) {
@@ -295,6 +321,11 @@ final class NotchPanelController: NSObject {
 
     private func handleMouseLocation(_ point: NSPoint) {
         if isExpanded {
+            if resizeEdge != nil || Date() < resizeGraceUntil {
+                cancelCollapse()
+                return
+            }
+
             if drawerState.isPinned {
                 cancelCollapse()
                 return
@@ -331,6 +362,7 @@ final class NotchPanelController: NSObject {
     private func scheduleCollapse() {
         guard collapseTask == nil else { return }
         guard activeMenuTrackingCount == 0 else { return }
+        guard Date() >= resizeGraceUntil else { return }
         guard !drawerState.isPinned else { return }
         guard !editorInteractionState.shouldKeepDrawerExpanded else { return }
 
@@ -394,7 +426,148 @@ final class NotchPanelController: NSObject {
         let screen = targetScreen()
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let topY = screenFrame.maxY + layout.expandedTopOffset
-        return frame(for: layout.expandedSize, topY: topY, in: screenFrame)
+        return frame(for: effectiveExpandedSize(for: layout), topY: topY, in: screenFrame)
+    }
+
+    /// The drawer's current size: the user's dragged override clamped to the
+    /// layout's [default … max] bounds, or the default when unset.
+    private func effectiveExpandedSize(for layout: NotchLayout) -> NSSize {
+        guard let override = drawerState.expandedSizeOverride else { return layout.expandedSize }
+        return NSSize(
+            width: min(max(override.width, layout.expandedSize.width), layout.maxExpandedSize.width),
+            height: min(max(override.height, layout.expandedSize.height), layout.maxExpandedSize.height)
+        )
+    }
+
+    // MARK: - Edge resizing
+
+    /// Intercepts drawer-panel mouse events near its left/right/bottom edges to
+    /// resize it. Horizontal drags are symmetric (the drawer stays centered);
+    /// the bottom grows downward. Returns true when the event is consumed.
+    private func handleDrawerResize(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown:
+            guard isExpanded, let edge = resizeEdge(at: event) else { return false }
+            resizeEdge = edge
+            resizeStartMouse = NSEvent.mouseLocation
+            resizeStartSize = effectiveExpandedSize(for: currentLayout())
+            return true
+        case .leftMouseDragged:
+            guard let edge = resizeEdge else { return false }
+            applyResize(edge: edge, mouse: NSEvent.mouseLocation)
+            return true
+        case .leftMouseUp:
+            guard resizeEdge != nil else { return false }
+            resizeEdge = nil
+            resizeGraceUntil = Date().addingTimeInterval(Self.resizeGraceInterval)
+            persistDrawerSize()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resizeEdge(at event: NSEvent) -> ResizeEdge? {
+        resizeEdge(atLocalPoint: event.locationInWindow, in: drawerPanel.frame.size)
+    }
+
+    /// `point` is in the drawer panel's coordinate space (origin bottom-left).
+    private func resizeEdge(atLocalPoint point: NSPoint, in size: NSSize) -> ResizeEdge? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        guard point.x >= 0, point.x <= size.width, point.y >= 0, point.y <= size.height else { return nil }
+        let threshold = Self.resizeEdgeThreshold
+        let nearLeft = point.x <= threshold
+        let nearRight = point.x >= size.width - threshold
+        let nearBottom = point.y <= threshold // window origin is bottom-left
+
+        switch (nearBottom, nearLeft, nearRight) {
+        case (true, true, _): return .bottomLeft
+        case (true, _, true): return .bottomRight
+        case (true, _, _): return .bottom
+        case (false, true, _): return .left
+        case (false, _, true): return .right
+        default: return nil
+        }
+    }
+
+    /// The double-arrow cursor for an edge; corners use diagonal cursors when
+    /// available.
+    private func resizeCursor(for edge: ResizeEdge) -> NSCursor {
+        switch edge {
+        case .left, .right: return .resizeLeftRight
+        case .bottom: return .resizeUpDown
+        case .bottomLeft: return Self.diagonalCursor("_windowResizeNorthEastSouthWestCursor") ?? .resizeUpDown
+        case .bottomRight: return Self.diagonalCursor("_windowResizeNorthWestSouthEastCursor") ?? .resizeUpDown
+        }
+    }
+
+    private static func diagonalCursor(_ selectorName: String) -> NSCursor? {
+        let selector = NSSelectorFromString(selectorName)
+        guard NSCursor.responds(to: selector) else { return nil }
+        return NSCursor.perform(selector)?.takeUnretainedValue() as? NSCursor
+    }
+
+    /// Shows a resize cursor while the pointer hovers a draggable edge (and the
+    /// drawer isn't currently being resized).
+    private func updateResizeCursor(globalPoint: NSPoint) {
+        guard isExpanded, resizeEdge == nil else { return }
+        let frame = drawerPanel.frame
+        let local = NSPoint(x: globalPoint.x - frame.minX, y: globalPoint.y - frame.minY)
+        if let edge = resizeEdge(atLocalPoint: local, in: frame.size) {
+            resizeCursor(for: edge).set()
+            didShowResizeCursor = true
+        } else if didShowResizeCursor {
+            NSCursor.arrow.set()
+            didShowResizeCursor = false
+        }
+    }
+
+    private func applyResize(edge: ResizeEdge, mouse: NSPoint) {
+        let dx = mouse.x - resizeStartMouse.x
+        let dy = mouse.y - resizeStartMouse.y
+
+        var width = resizeStartSize.width
+        var height = resizeStartSize.height
+
+        switch edge {
+        case .right, .bottomRight:
+            width = resizeStartSize.width + dx * 2 // symmetric about the center
+        case .left, .bottomLeft:
+            width = resizeStartSize.width - dx * 2
+        case .bottom:
+            break
+        }
+        switch edge {
+        case .bottom, .bottomLeft, .bottomRight:
+            height = resizeStartSize.height - dy // dragging down (dy < 0) grows height
+        case .left, .right:
+            break
+        }
+
+        let layout = currentLayout()
+        width = min(max(width, layout.expandedSize.width), layout.maxExpandedSize.width)
+        height = min(max(height, layout.expandedSize.height), layout.maxExpandedSize.height)
+
+        drawerState.expandedSizeOverride = NSSize(width: width, height: height)
+        drawerPanel.setFrame(drawerFrame(for: layout), display: true)
+        // Flush the SwiftUI content's layout in the same cycle so it reflows
+        // with the new frame instead of lagging a frame (which briefly leaves a
+        // gap at the top-attached edge).
+        drawerPanel.contentView?.layoutSubtreeIfNeeded()
+        drawerPanel.displayIfNeeded()
+    }
+
+    private func persistDrawerSize() {
+        guard let size = drawerState.expandedSizeOverride else { return }
+        UserDefaults.standard.set(Double(size.width), forKey: Self.drawerWidthKey)
+        UserDefaults.standard.set(Double(size.height), forKey: Self.drawerHeightKey)
+    }
+
+    private func loadPersistedDrawerSize() {
+        let width = UserDefaults.standard.double(forKey: Self.drawerWidthKey)
+        let height = UserDefaults.standard.double(forKey: Self.drawerHeightKey)
+        guard width > 0, height > 0 else { return }
+        drawerState.expandedSizeOverride = NSSize(width: width, height: height)
     }
 
     private func frame(for size: NSSize, topY: CGFloat, in screenFrame: NSRect) -> NSRect {

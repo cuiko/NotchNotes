@@ -10,14 +10,16 @@ final class SettingsPopoverPanel: NSPanel {
 @MainActor
 final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private let settingsStore: AppSettingsStore
+    private let noteStore: NoteStore
     private var panel: SettingsPopoverPanel?
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 258, height: 486)
+    private let contentSize = NSSize(width: 258, height: 560)
 
-    init(settingsStore: AppSettingsStore) {
+    init(settingsStore: AppSettingsStore, noteStore: NoteStore) {
         self.settingsStore = settingsStore
+        self.noteStore = noteStore
         super.init()
     }
 
@@ -50,7 +52,7 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.delegate = self
 
-        let view = SettingsPopoverView(settingsStore: settingsStore)
+        let view = SettingsPopoverView(settingsStore: settingsStore, store: noteStore)
         let host = FirstMouseHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: contentSize)
         host.wantsLayer = true
@@ -184,9 +186,13 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
 
 struct SettingsPopoverView: View {
     @ObservedObject var settingsStore: AppSettingsStore
+    @ObservedObject var store: NoteStore
     @State private var appeared = false
+    @State private var pendingDeleteProfile: NoteProfile?
 
     var body: some View {
+        ZStack {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "gearshape")
@@ -197,6 +203,8 @@ struct SettingsPopoverView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
             }
+
+            profilesSection
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Trigger")
@@ -344,7 +352,14 @@ struct SettingsPopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 258, height: 486)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+
+            if let pending = pendingDeleteProfile {
+                deleteProfileConfirmation(pending)
+            }
+        }
+        .frame(width: 258, height: 560)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
@@ -357,6 +372,128 @@ struct SettingsPopoverView: View {
             appeared = true
             settingsStore.refreshLaunchAtLoginStatus()
         }
+    }
+
+    private func deleteProfileConfirmation(_ profile: NoteProfile) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.black.opacity(0.55))
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.easeOut(duration: 0.12)) { pendingDeleteProfile = nil } }
+
+            VStack(spacing: 14) {
+                VStack(spacing: 6) {
+                    Text("Delete profile?")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                    Text("“\(profile.name)” and its notes will be permanently deleted.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    Button("Cancel") {
+                        withAnimation(.easeOut(duration: 0.12)) { pendingDeleteProfile = nil }
+                    }
+                    .buttonStyle(ConfirmationButtonStyle(destructive: false))
+                    .pointingHandCursor()
+                    Button("Delete") {
+                        store.deleteProfile(profile.id)
+                        withAnimation(.easeOut(duration: 0.12)) { pendingDeleteProfile = nil }
+                    }
+                    .buttonStyle(ConfirmationButtonStyle(destructive: true))
+                    .pointingHandCursor()
+                }
+            }
+            .padding(18)
+            .frame(width: 210)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 0.05, green: 0.05, blue: 0.058))
+            )
+        }
+        .transition(.opacity)
+    }
+
+    private var profilesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Profiles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            VStack(spacing: 6) {
+                ForEach(store.profiles) { profile in
+                    profileRow(profile)
+                }
+            }
+
+            Button {
+                store.addProfile(name: "")
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Add Profile")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.055))
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor()
+        }
+    }
+
+    private func profileRow(_ profile: NoteProfile) -> some View {
+        let isCurrent = profile.id == store.currentProfileID
+        return HStack(spacing: 8) {
+            Button {
+                store.selectProfile(profile.id)
+            } label: {
+                Image(systemName: isCurrent ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(isCurrent ? 0.9 : 0.4))
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor()
+
+            TextField("Name", text: nameBinding(profile))
+                .textFieldStyle(.plain)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+
+            Button {
+                withAnimation(.easeOut(duration: 0.12)) { pendingDeleteProfile = profile }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(store.profiles.count <= 1 ? 0.2 : 0.5))
+            }
+            .buttonStyle(.plain)
+            .disabled(store.profiles.count <= 1)
+            .pointingHandCursor()
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.white.opacity(isCurrent ? 0.10 : 0.055))
+        )
+    }
+
+    private func nameBinding(_ profile: NoteProfile) -> Binding<String> {
+        Binding(
+            get: { store.profiles.first { $0.id == profile.id }?.name ?? profile.name },
+            set: { store.renameProfile(profile.id, to: $0) }
+        )
     }
 
     private func indentButton(title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {

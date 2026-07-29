@@ -11,12 +11,28 @@ private let codeBlockHighlightTheme = "atom-one-dark"
 /// Opaque background painted behind fenced code blocks.
 private let codeBlockBackgroundColor = NSColor(srgbRed: 0.16, green: 0.16, blue: 0.19, alpha: 1)
 
+/// Bridges an `NSMenuItem` click back to a Swift closure, carrying the profile
+/// id in `representedObject`.
+@MainActor
+final class ProfileMenuTarget: NSObject {
+    var onSelect: (UUID) -> Void = { _ in }
+
+    @objc func selectProfile(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? UUID {
+            onSelect(id)
+        }
+    }
+}
+
 @MainActor
 final class DrawerState: ObservableObject {
     @Published var isExpanded = false
     @Published var revealProgress: CGFloat = 0
     /// When pinned, the drawer stays open and ignores the hover-out auto-collapse.
     @Published var isPinned = false
+    /// User-chosen expanded drawer size from edge-dragging. `nil` uses the
+    /// layout's default size.
+    @Published var expandedSizeOverride: NSSize?
 }
 
 struct NotebookView: View {
@@ -29,12 +45,53 @@ struct NotebookView: View {
     let onOpenSettings: () -> Void
 
     @State private var confirmation: ConfirmationRequest?
+    @State private var profileMenuTarget = ProfileMenuTarget()
+
+    /// Current expanded size: the user's dragged override, or the layout default.
+    private var expandedSize: NSSize {
+        drawerState.expandedSizeOverride ?? layout.expandedSize
+    }
+
+    /// Pops a native menu listing the profiles, near the pointer.
+    private func showProfileMenu() {
+        profileMenuTarget.onSelect = { id in store.selectProfile(id) }
+        let menu = NSMenu()
+        for profile in store.profiles {
+            let item = NSMenuItem(
+                title: profile.name,
+                action: #selector(ProfileMenuTarget.selectProfile(_:)),
+                keyEquivalent: ""
+            )
+            item.target = profileMenuTarget
+            item.representedObject = profile.id
+            item.state = profile.id == store.currentProfileID ? .on : .off
+            menu.addItem(item)
+        }
+
+        if let window = NSApp.keyWindow, let contentView = window.contentView {
+            let inWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+            menu.popUp(positioning: nil, at: contentView.convert(inWindow, from: nil), in: contentView)
+        } else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+    }
+
+    /// Once fully open, the drawer fills its panel instead of a fixed
+    /// `expandedSize`, so edge-resizing the panel reflows synchronously with no
+    /// gap; during the open animation it still uses the interpolated size.
+    private var isFullyRevealed: Bool {
+        drawerState.isExpanded && drawerState.revealProgress >= 0.999
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             drawer
         }
-        .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
+        .frame(
+            maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
+            maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
+            alignment: .top
+        )
         .onChange(of: confirmation != nil) { _, presenting in
             editorInteractionState.setCursorSuppressed(presenting)
             if presenting {
@@ -45,10 +102,23 @@ struct NotebookView: View {
         }
     }
 
+    @ViewBuilder
+    private func fillWhenRevealed<V: View>(_ view: V) -> some View {
+        if isFullyRevealed {
+            view.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            view.frame(width: revealWidth, height: revealHeight, alignment: .top)
+        }
+    }
+
     private var drawer: some View {
         ZStack(alignment: .top) {
             expandedContent
-                .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
+                .frame(
+                    maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
+                    maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
+                    alignment: .top
+                )
                 .transaction { transaction in
                     transaction.animation = nil
                 }
@@ -67,21 +137,25 @@ struct NotebookView: View {
                         withAnimation(.easeOut(duration: 0.12)) { self.confirmation = nil }
                     }
                 )
-                .frame(width: layout.expandedSize.width, height: layout.expandedSize.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
                 .zIndex(2)
             }
         }
-        .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
+        .frame(
+            maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
+            maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
+            alignment: .top
+        )
         .background(Color(red: 0.02, green: 0.02, blue: 0.025).opacity(0.98))
         .mask(alignment: .top) {
-            TopAttachedRoundedShape(radius: cornerRadius)
-                .frame(width: revealWidth, height: revealHeight)
+            fillWhenRevealed(TopAttachedRoundedShape(radius: cornerRadius))
         }
         .overlay(alignment: .top) {
-            TopAttachedRoundedShape(radius: cornerRadius)
-                .stroke(.white.opacity(0.09), lineWidth: 1)
-                .frame(width: revealWidth, height: revealHeight)
+            fillWhenRevealed(
+                TopAttachedRoundedShape(radius: cornerRadius)
+                    .stroke(.white.opacity(0.09), lineWidth: 1)
+            )
         }
         .contentShape(Rectangle())
         .allowsHitTesting(drawerState.isExpanded)
@@ -101,6 +175,17 @@ struct NotebookView: View {
                     Spacer()
 
                     HStack(spacing: 6) {
+                        if store.profiles.count > 1 {
+                            Button {
+                                showProfileMenu()
+                            } label: {
+                                Image(systemName: "person")
+                                    .frame(width: 28, height: 28)
+                            }
+                            .buttonStyle(DarkIconButtonStyle())
+                            .help("Switch profile")
+                        }
+
                         Button {
                             if settingsStore.confirmBeforeDelete {
                                 withAnimation(.easeOut(duration: 0.12)) {
@@ -179,11 +264,11 @@ struct NotebookView: View {
     }
 
     private var revealWidth: CGFloat {
-        interpolate(from: layout.compactSize.width, to: layout.expandedSize.width)
+        interpolate(from: layout.compactSize.width, to: expandedSize.width)
     }
 
     private var revealHeight: CGFloat {
-        interpolate(from: layout.compactSize.height, to: layout.expandedSize.height)
+        interpolate(from: layout.compactSize.height, to: expandedSize.height)
     }
 
     private var cornerRadius: CGFloat {
@@ -197,8 +282,8 @@ struct NotebookView: View {
 
     private var editorSize: CGSize {
         CGSize(
-            width: layout.expandedSize.width - contentHorizontalPadding * 2,
-            height: layout.expandedSize.height - toolbarTopPadding - contentBottomPadding - toolbarHeight - editorSpacing
+            width: expandedSize.width - contentHorizontalPadding * 2,
+            height: expandedSize.height - toolbarTopPadding - contentBottomPadding - toolbarHeight - editorSpacing
         )
     }
 

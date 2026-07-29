@@ -5,6 +5,8 @@ struct NotchLayout: Equatable {
     let notchSize: NSSize
     let compactSize: NSSize
     let expandedSize: NSSize
+    /// Largest size the drawer can be dragged to. `expandedSize` is the minimum.
+    let maxExpandedSize: NSSize
     let compactTopOffset: CGFloat
     let expandedTopOffset: CGFloat
 }
@@ -61,10 +63,14 @@ enum NotchGeometry {
         let expandedWidth = min(max(notch.width + 220, 480), 540, screenFrame.width - 36)
         let expandedHeight = min(max(notch.height + 374, 408), screenFrame.height - 84)
 
+        let maxExpandedWidth = max(expandedWidth, min(760, screenFrame.width - 36))
+        let maxExpandedHeight = max(expandedHeight, min(640, screenFrame.height - 160))
+
         return NotchLayout(
             notchSize: notch,
             compactSize: NSSize(width: compactWidth, height: compactHeight),
             expandedSize: NSSize(width: expandedWidth, height: expandedHeight),
+            maxExpandedSize: NSSize(width: maxExpandedWidth, height: maxExpandedHeight),
             compactTopOffset: 0,
             expandedTopOffset: 0
         )

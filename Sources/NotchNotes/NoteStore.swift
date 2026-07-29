@@ -42,6 +42,22 @@ struct NoteTab: Identifiable, Codable, Equatable {
     }
 }
 
+/// An isolated set of tabs. Switching the active profile swaps the whole tab
+/// set; images are shared across all profiles.
+struct NoteProfile: Identifiable, Codable, Equatable {
+    var id: UUID
+    var name: String
+    var tabs: [NoteTab]
+    var activeTabID: UUID
+
+    init(id: UUID = UUID(), name: String, tabs: [NoteTab], activeTabID: UUID) {
+        self.id = id
+        self.name = name
+        self.tabs = tabs.isEmpty ? [NoteTab()] : tabs
+        self.activeTabID = self.tabs.contains(where: { $0.id == activeTabID }) ? activeTabID : self.tabs[0].id
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
@@ -69,53 +85,104 @@ extension NSColor {
 
 @MainActor
 final class NoteStore: ObservableObject {
-    @Published private(set) var tabs: [NoteTab]
-    @Published private(set) var activeTabID: UUID
+    @Published private(set) var profiles: [NoteProfile]
+    @Published private(set) var currentProfileID: UUID
 
-    /// Called after a tab is removed with the text of every remaining tab, so
-    /// image assets the deleted note referenced can be garbage-collected when
-    /// no other note still uses them.
+    /// Called after a tab or profile is removed with the text of every remaining
+    /// tab across all profiles, so image assets are garbage-collected only when
+    /// no note anywhere still uses them.
     var imagePruner: (([String]) -> Void)?
 
     private static let legacyTextKey = "notchNotes.text"
     private static let tabsKey = "notchNotes.tabs.v1"
     private static let activeTabIDKey = "notchNotes.activeTabID"
+    private static let profilesKey = "notchNotes.profiles.v1"
+    private static let activeProfileIDKey = "notchNotes.activeProfileID"
+    private static let defaultProfileName = "Default"
 
     init() {
-        let storedTabs = Self.loadStoredTabs()
-        let initialTabs: [NoteTab]
-
-        if storedTabs.isEmpty {
-            let legacyText = UserDefaults.standard.string(forKey: Self.legacyTextKey) ?? ""
-            initialTabs = [NoteTab(text: legacyText)]
-        } else {
-            initialTabs = storedTabs
-        }
-
-        tabs = initialTabs.map { tab in
-            var tab = tab
-            tab.text = Self.normalizingBulletMarkers(in: tab.text)
-            return tab
-        }
-
-        let activeIDString = UserDefaults.standard.string(forKey: Self.activeTabIDKey)
-        let storedActiveID = activeIDString.flatMap(UUID.init(uuidString:))
-        activeTabID = storedActiveID.flatMap { activeID in
-            initialTabs.contains(where: { $0.id == activeID }) ? activeID : nil
-        } ?? initialTabs[0].id
-
+        let loaded = Self.loadProfiles()
+        profiles = loaded.profiles
+        currentProfileID = loaded.activeID
         save()
     }
 
-    var text: String {
-        tabs[activeIndex].text
+    // MARK: - Current profile access
+
+    private var currentProfileIndex: Int {
+        profiles.firstIndex { $0.id == currentProfileID } ?? 0
     }
 
+    /// Tabs of the active profile.
+    var tabs: [NoteTab] {
+        profiles[currentProfileIndex].tabs
+    }
+
+    var activeTabID: UUID {
+        profiles[currentProfileIndex].activeTabID
+    }
+
+    var text: String {
+        let profile = profiles[currentProfileIndex]
+        return profile.tabs[activeIndex(in: profile)].text
+    }
+
+    private func activeIndex(in profile: NoteProfile) -> Int {
+        profile.tabs.firstIndex { $0.id == profile.activeTabID } ?? 0
+    }
+
+    // MARK: - Profiles
+
+    /// Creates a new empty profile and switches to it.
+    func addProfile(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tab = NoteTab()
+        let profile = NoteProfile(
+            name: trimmed.isEmpty ? "Profile \(profiles.count + 1)" : trimmed,
+            tabs: [tab],
+            activeTabID: tab.id
+        )
+        profiles.append(profile)
+        currentProfileID = profile.id
+        save()
+    }
+
+    func renameProfile(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[index].name = trimmed
+        save()
+    }
+
+    func deleteProfile(_ id: UUID) {
+        guard profiles.count > 1, let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles.remove(at: index)
+        if currentProfileID == id {
+            currentProfileID = profiles[min(index, profiles.count - 1)].id
+        }
+        save()
+        imagePruner?(allTabTexts())
+    }
+
+    func selectProfile(_ id: UUID) {
+        guard id != currentProfileID, profiles.contains(where: { $0.id == id }) else { return }
+        currentProfileID = id
+        save()
+    }
+
+    private func allTabTexts() -> [String] {
+        profiles.flatMap { $0.tabs.map { $0.text } }
+    }
+
+    // MARK: - Tabs (operate on the current profile)
+
     func updateText(_ nextText: String) {
-        // Note: bullet-marker normalization runs only on load (below), never
-        // here — rewriting text mid-edit resets the caret to the document end.
-        tabs[activeIndex].text = nextText
-        clampSelection(for: tabs[activeIndex].id)
+        // Note: bullet-marker normalization runs only on load, never here —
+        // rewriting text mid-edit resets the caret to the document end.
+        let ci = currentProfileIndex
+        let ai = activeIndex(in: profiles[ci])
+        profiles[ci].tabs[ai].text = nextText
+        clampSelection(for: profiles[ci].tabs[ai].id)
         save()
     }
 
@@ -157,8 +224,9 @@ final class NoteStore: ObservableObject {
 
     func addTab() {
         let tab = NoteTab()
-        tabs.append(tab)
-        activeTabID = tab.id
+        let ci = currentProfileIndex
+        profiles[ci].tabs.append(tab)
+        profiles[ci].activeTabID = tab.id
         save()
     }
 
@@ -166,23 +234,27 @@ final class NoteStore: ObservableObject {
         removeTab(activeTabID)
     }
 
-    /// Rewrites the leading indentation of every line in every tab to match a
-    /// new indent style — used when the Settings indent option changes so old
-    /// notes stop mixing tabs and spaces. Only leading whitespace is touched.
+    /// Rewrites the leading indentation of every line of every tab across all
+    /// profiles to match a new indent style — used when the Settings indent
+    /// option changes so old notes stop mixing tabs and spaces.
     func reindentAllTabs(fromUseSpaces: Bool, fromCount: Int, toUseSpaces: Bool, toCount: Int) {
         var changed = false
-        for index in tabs.indices {
-            let converted = Self.reindenting(
-                tabs[index].text,
-                fromUseSpaces: fromUseSpaces, fromCount: fromCount,
-                toUseSpaces: toUseSpaces, toCount: toCount
-            )
-            guard converted != tabs[index].text else { continue }
-            tabs[index].text = converted
-            clampSelection(for: tabs[index].id)
-            changed = true
+        for pIndex in profiles.indices {
+            for tIndex in profiles[pIndex].tabs.indices {
+                let converted = Self.reindenting(
+                    profiles[pIndex].tabs[tIndex].text,
+                    fromUseSpaces: fromUseSpaces, fromCount: fromCount,
+                    toUseSpaces: toUseSpaces, toCount: toCount
+                )
+                guard converted != profiles[pIndex].tabs[tIndex].text else { continue }
+                profiles[pIndex].tabs[tIndex].text = converted
+                changed = true
+            }
         }
-        if changed { save() }
+        if changed {
+            clampSelection(for: activeTabID)
+            save()
+        }
     }
 
     /// Converts each line's leading whitespace from one indent style to another.
@@ -220,42 +292,47 @@ final class NoteStore: ObservableObject {
     }
 
     func cleanFinishedTodos(for id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let cleaned = Self.removingFinishedTodos(from: tabs[index].text)
-        guard cleaned != tabs[index].text else { return }
-        tabs[index].text = cleaned
+        let ci = currentProfileIndex
+        guard let index = profiles[ci].tabs.firstIndex(where: { $0.id == id }) else { return }
+        let cleaned = Self.removingFinishedTodos(from: profiles[ci].tabs[index].text)
+        guard cleaned != profiles[ci].tabs[index].text else { return }
+        profiles[ci].tabs[index].text = cleaned
         clampSelection(for: id)
         save()
     }
 
     func removeTab(_ id: UUID) {
-        guard tabs.count > 1, let removedIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let wasActive = tabs[removedIndex].id == activeTabID
-        tabs.remove(at: removedIndex)
+        let ci = currentProfileIndex
+        guard profiles[ci].tabs.count > 1,
+              let removedIndex = profiles[ci].tabs.firstIndex(where: { $0.id == id }) else { return }
+        let wasActive = profiles[ci].tabs[removedIndex].id == profiles[ci].activeTabID
+        profiles[ci].tabs.remove(at: removedIndex)
         if wasActive {
-            let nextIndex = min(removedIndex, tabs.count - 1)
-            activeTabID = tabs[nextIndex].id
+            let nextIndex = min(removedIndex, profiles[ci].tabs.count - 1)
+            profiles[ci].activeTabID = profiles[ci].tabs[nextIndex].id
         }
         save()
-        imagePruner?(tabs.map { $0.text })
+        imagePruner?(allTabTexts())
     }
 
     func selectTab(_ id: UUID) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
-        activeTabID = id
+        let ci = currentProfileIndex
+        guard profiles[ci].tabs.contains(where: { $0.id == id }) else { return }
+        profiles[ci].activeTabID = id
         save()
     }
 
     func moveTab(fromOffsets source: IndexSet, toOffset destination: Int) {
-        tabs.move(fromOffsets: source, toOffset: destination)
+        profiles[currentProfileIndex].tabs.move(fromOffsets: source, toOffset: destination)
         save()
     }
 
     func updateSelection(for id: UUID, range: NSRange) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let clamped = clampedRange(range, text: tabs[index].text)
-        tabs[index].selectionLocation = clamped.location
-        tabs[index].selectionLength = clamped.length
+        let ci = currentProfileIndex
+        guard let index = profiles[ci].tabs.firstIndex(where: { $0.id == id }) else { return }
+        let clamped = clampedRange(range, text: profiles[ci].tabs[index].text)
+        profiles[ci].tabs[index].selectionLocation = clamped.location
+        profiles[ci].tabs[index].selectionLength = clamped.length
         save()
     }
 
@@ -270,16 +347,13 @@ final class NoteStore: ObservableObject {
         )
     }
 
-    private var activeIndex: Int {
-        tabs.firstIndex { $0.id == activeTabID } ?? 0
-    }
-
     private func clampSelection(for id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let range = NSRange(location: tabs[index].selectionLocation ?? 0, length: tabs[index].selectionLength ?? 0)
-        let clamped = clampedRange(range, text: tabs[index].text)
-        tabs[index].selectionLocation = clamped.location
-        tabs[index].selectionLength = clamped.length
+        let ci = currentProfileIndex
+        guard let index = profiles[ci].tabs.firstIndex(where: { $0.id == id }) else { return }
+        let range = NSRange(location: profiles[ci].tabs[index].selectionLocation ?? 0, length: profiles[ci].tabs[index].selectionLength ?? 0)
+        let clamped = clampedRange(range, text: profiles[ci].tabs[index].text)
+        profiles[ci].tabs[index].selectionLocation = clamped.location
+        profiles[ci].tabs[index].selectionLength = clamped.length
     }
 
     private func clampedRange(_ range: NSRange, text: String) -> NSRange {
@@ -290,10 +364,12 @@ final class NoteStore: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(tabs) {
-            UserDefaults.standard.set(data, forKey: Self.tabsKey)
+        if let data = try? JSONEncoder().encode(profiles) {
+            UserDefaults.standard.set(data, forKey: Self.profilesKey)
         }
-        UserDefaults.standard.set(activeTabID.uuidString, forKey: Self.activeTabIDKey)
+        UserDefaults.standard.set(currentProfileID.uuidString, forKey: Self.activeProfileIDKey)
+        // Keep the legacy single-note key updated with the active note so an
+        // older build (or external reader) still sees current content.
         UserDefaults.standard.set(text, forKey: Self.legacyTextKey)
     }
 
@@ -361,5 +437,52 @@ final class NoteStore: ObservableObject {
         }
 
         return tabs.isEmpty ? [] : tabs
+    }
+
+    private static func loadProfiles() -> (profiles: [NoteProfile], activeID: UUID) {
+        let defaults = UserDefaults.standard
+
+        // Current format: an array of profiles.
+        if let data = defaults.data(forKey: profilesKey),
+           let decoded = try? JSONDecoder().decode([NoteProfile].self, from: data),
+           !decoded.isEmpty {
+            let normalized = decoded.map(normalizeProfile)
+            let activeID = defaults.string(forKey: activeProfileIDKey)
+                .flatMap(UUID.init(uuidString:))
+                .flatMap { id in normalized.contains(where: { $0.id == id }) ? id : nil }
+                ?? normalized[0].id
+            return (normalized, activeID)
+        }
+
+        // Migrate from the pre-profile format (tabs.v1 + activeTabID, or the
+        // legacy single-note text) into one "Default" profile.
+        let storedTabs = loadStoredTabs()
+        let tabs = storedTabs.isEmpty
+            ? [NoteTab(text: defaults.string(forKey: legacyTextKey) ?? "")]
+            : storedTabs
+        let activeTabID = defaults.string(forKey: activeTabIDKey)
+            .flatMap(UUID.init(uuidString:))
+            .flatMap { id in tabs.contains(where: { $0.id == id }) ? id : nil }
+            ?? tabs[0].id
+        let profile = normalizeProfile(
+            NoteProfile(name: defaultProfileName, tabs: tabs, activeTabID: activeTabID)
+        )
+        return ([profile], profile.id)
+    }
+
+    /// Runs bullet-marker normalization on a profile's tabs and repairs any
+    /// invalid active-tab reference.
+    private static func normalizeProfile(_ profile: NoteProfile) -> NoteProfile {
+        var profile = profile
+        profile.tabs = profile.tabs.map { tab in
+            var tab = tab
+            tab.text = normalizingBulletMarkers(in: tab.text)
+            return tab
+        }
+        if profile.tabs.isEmpty { profile.tabs = [NoteTab()] }
+        if !profile.tabs.contains(where: { $0.id == profile.activeTabID }) {
+            profile.activeTabID = profile.tabs[0].id
+        }
+        return profile
     }
 }
