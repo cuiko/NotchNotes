@@ -47,11 +47,6 @@ struct NotebookView: View {
     @State private var confirmation: ConfirmationRequest?
     @State private var profileMenuTarget = ProfileMenuTarget()
 
-    /// Current expanded size: the user's dragged override, or the layout default.
-    private var expandedSize: NSSize {
-        drawerState.expandedSizeOverride ?? layout.expandedSize
-    }
-
     /// Pops a native menu listing the profiles, near the pointer.
     private func showProfileMenu() {
         profileMenuTarget.onSelect = { id in store.selectProfile(id) }
@@ -76,22 +71,14 @@ struct NotebookView: View {
         }
     }
 
-    /// Once fully open, the drawer fills its panel instead of a fixed
-    /// `expandedSize`, so edge-resizing the panel reflows synchronously with no
-    /// gap; during the open animation it still uses the interpolated size.
-    private var isFullyRevealed: Bool {
-        drawerState.isExpanded && drawerState.revealProgress >= 0.999
-    }
-
     var body: some View {
-        ZStack(alignment: .top) {
-            drawer
+        // The panel (window) size drives layout via the geometry proxy, so
+        // edge-resizing reflows synchronously (no lag/gap), while the reveal
+        // animation is a continuous interpolation of `revealProgress` toward the
+        // actual container size — never a boolean branch, which wouldn't animate.
+        GeometryReader { proxy in
+            drawer(container: proxy.size)
         }
-        .frame(
-            maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
-            maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
-            alignment: .top
-        )
         .onChange(of: confirmation != nil) { _, presenting in
             editorInteractionState.setCursorSuppressed(presenting)
             if presenting {
@@ -102,23 +89,10 @@ struct NotebookView: View {
         }
     }
 
-    @ViewBuilder
-    private func fillWhenRevealed<V: View>(_ view: V) -> some View {
-        if isFullyRevealed {
-            view.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        } else {
-            view.frame(width: revealWidth, height: revealHeight, alignment: .top)
-        }
-    }
-
-    private var drawer: some View {
+    private func drawer(container: CGSize) -> some View {
         ZStack(alignment: .top) {
-            expandedContent
-                .frame(
-                    maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
-                    maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
-                    alignment: .top
-                )
+            expandedContent(container: container)
+                .frame(width: container.width, height: container.height, alignment: .top)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
@@ -137,31 +111,27 @@ struct NotebookView: View {
                         withAnimation(.easeOut(duration: 0.12)) { self.confirmation = nil }
                     }
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(width: container.width, height: container.height, alignment: .top)
                 .transition(.opacity)
                 .zIndex(2)
             }
         }
-        .frame(
-            maxWidth: isFullyRevealed ? .infinity : expandedSize.width,
-            maxHeight: isFullyRevealed ? .infinity : expandedSize.height,
-            alignment: .top
-        )
+        .frame(width: container.width, height: container.height, alignment: .top)
         .background(Color(red: 0.02, green: 0.02, blue: 0.025).opacity(0.98))
         .mask(alignment: .top) {
-            fillWhenRevealed(TopAttachedRoundedShape(radius: cornerRadius))
+            TopAttachedRoundedShape(radius: cornerRadius)
+                .frame(width: revealWidth(container), height: revealHeight(container))
         }
         .overlay(alignment: .top) {
-            fillWhenRevealed(
-                TopAttachedRoundedShape(radius: cornerRadius)
-                    .stroke(.white.opacity(0.09), lineWidth: 1)
-            )
+            TopAttachedRoundedShape(radius: cornerRadius)
+                .stroke(.white.opacity(0.09), lineWidth: 1)
+                .frame(width: revealWidth(container), height: revealHeight(container))
         }
         .contentShape(Rectangle())
         .allowsHitTesting(drawerState.isExpanded)
     }
 
-    private var expandedContent: some View {
+    private func expandedContent(container: CGSize) -> some View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 12) {
                 HStack(alignment: .center, spacing: 10) {
@@ -233,9 +203,9 @@ struct NotebookView: View {
                     imageStore: imageStore,
                     settingsStore: settingsStore,
                     editorInteractionState: editorInteractionState,
-                    size: editorSize
+                    size: editorSize(container)
                 )
-                .frame(width: editorSize.width, height: editorSize.height)
+                .frame(width: editorSize(container).width, height: editorSize(container).height)
                 .background(Color(red: 0.06, green: 0.06, blue: 0.07))
             }
         }
@@ -263,12 +233,12 @@ struct NotebookView: View {
             .opacity(1 - drawerState.revealProgress)
     }
 
-    private var revealWidth: CGFloat {
-        interpolate(from: layout.compactSize.width, to: expandedSize.width)
+    private func revealWidth(_ container: CGSize) -> CGFloat {
+        interpolate(from: layout.compactSize.width, to: container.width)
     }
 
-    private var revealHeight: CGFloat {
-        interpolate(from: layout.compactSize.height, to: expandedSize.height)
+    private func revealHeight(_ container: CGSize) -> CGFloat {
+        interpolate(from: layout.compactSize.height, to: container.height)
     }
 
     private var cornerRadius: CGFloat {
@@ -280,10 +250,10 @@ struct NotebookView: View {
         return min(max((progress - 0.42) / 0.34, 0), 1)
     }
 
-    private var editorSize: CGSize {
+    private func editorSize(_ container: CGSize) -> CGSize {
         CGSize(
-            width: expandedSize.width - contentHorizontalPadding * 2,
-            height: expandedSize.height - toolbarTopPadding - contentBottomPadding - toolbarHeight - editorSpacing
+            width: container.width - contentHorizontalPadding * 2,
+            height: container.height - toolbarTopPadding - contentBottomPadding - toolbarHeight - editorSpacing
         )
     }
 
