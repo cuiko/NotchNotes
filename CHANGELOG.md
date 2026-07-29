@@ -9,6 +9,19 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.5
+
+### Added
+- **Resizable drawer** — drag the drawer's left/right edges (or bottom corners)
+  to change its width symmetrically about the center, and the bottom edge to
+  make it taller; a resize cursor shows on the edges. The chosen size is
+  remembered across sessions.
+- **Profiles** — isolate tabs into independent profiles. Manage them under
+  *Settings → Profiles* (add / rename / switch / delete, with a delete
+  confirmation); when more than one exists, a profile switcher appears in the
+  drawer's top bar. Existing notes migrate into a "Default" profile, and images
+  stay shared across all profiles.
+
 ## v0.2.4
 
 ### Added
