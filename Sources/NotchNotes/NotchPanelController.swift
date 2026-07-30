@@ -405,7 +405,7 @@ final class NotchPanelController: NSObject {
 
     private func openSettingsPopover() {
         cancelCollapse()
-        settingsPopoverController.show(relativeTo: drawerPanel)
+        settingsPopoverController.toggle(relativeTo: drawerPanel)
     }
 
     private func currentLayout() -> NotchLayout {

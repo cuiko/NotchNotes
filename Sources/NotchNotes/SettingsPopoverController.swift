@@ -15,12 +15,33 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
     private var suppressShowUntil: Date?
-    private let contentSize = NSSize(width: 258, height: 560)
+    private var pinnedTopY: CGFloat = 0
+    private var revealOnMeasure: (() -> Void)?
+    private let contentSize: NSSize
 
     init(settingsStore: AppSettingsStore, noteStore: NoteStore) {
         self.settingsStore = settingsStore
         self.noteStore = noteStore
+        // Match the popover width to the drawer's minimum width so the settings
+        // panel uses the horizontal space instead of being a tall column.
+        let drawerWidth = NotchGeometry.layout(for: NotchGeometry.targetScreen()).expandedSize.width
+        self.contentSize = NSSize(width: drawerWidth, height: 384)
         super.init()
+    }
+
+    /// Toggle the popover for the gear button: close when shown, open when
+    /// hidden. Respects the brief suppress window so the same click that an
+    /// outside-click monitor already used to close the panel doesn't reopen it.
+    func toggle(relativeTo parentWindow: NSWindow?) {
+        if panel != nil {
+            close(animated: true)
+            return
+        }
+        if let suppressShowUntil, Date() < suppressShowUntil {
+            self.suppressShowUntil = nil
+            return
+        }
+        show(relativeTo: parentWindow)
     }
 
     func show(relativeTo parentWindow: NSWindow?) {
@@ -52,26 +73,94 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.delegate = self
 
-        let view = SettingsPopoverView(settingsStore: settingsStore, store: noteStore)
+        let view = SettingsPopoverView(
+            settingsStore: settingsStore,
+            store: noteStore,
+            panelSize: contentSize
+        ) { [weak self] height in
+            self?.applyContentHeight(height)
+        }
         let host = FirstMouseHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: contentSize)
         host.wantsLayer = true
+        // Clip the hosting layer to a rounded rect so all four corners stay
+        // rounded even if the panel height differs from the content by a hair.
+        host.layer?.cornerRadius = 14
+        host.layer?.cornerCurve = .continuous
+        host.layer?.masksToBounds = true
+        host.layoutSubtreeIfNeeded()
+        // Initial estimate; SwiftUI reports the exact content height back via
+        // `applyContentHeight` once it lays out, which tightens the panel so
+        // there's no empty space below the two columns.
+        let fittingHeight = host.fittingSize.height
+        let resolvedSize = NSSize(
+            width: contentSize.width,
+            height: fittingHeight > 0 ? fittingHeight : contentSize.height
+        )
+        host.autoresizingMask = [.width, .height]
+        panel.setContentSize(resolvedSize)
         panel.contentView = host
 
         self.panel = panel
-        let finalOrigin = origin(relativeTo: parentWindow)
-        panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y + 8))
+        let finalOrigin = origin(relativeTo: parentWindow, size: resolvedSize)
+        // Pin the panel's top edge (just under the gear) so height corrections
+        // grow/shrink downward instead of shifting the whole panel.
+        pinnedTopY = finalOrigin.y + resolvedSize.height
+        // No position slide — the panel sits at its final spot and the SwiftUI
+        // scale (anchored top-right, at the gear) does the reveal so it grows
+        // downward from the gear instead of drifting up from below.
+        panel.setFrameOrigin(finalOrigin)
         panel.alphaValue = 0
+
+        // Stay invisible until SwiftUI reports the exact content height and we
+        // correct the frame; only then fade in, so the height snap never shows.
+        // Fade in while sliding down a few points from the gear.
+        revealOnMeasure = { [weak panel] in
+            guard let panel else { return }
+            let end = panel.frame.origin
+            let start = NSPoint(x: end.x, y: end.y + 10)
+            panel.setFrameOrigin(start)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrameOrigin(end)
+            }
+        }
+
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         installOutsideClickMonitor()
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
-            panel.animator().setFrameOrigin(finalOrigin)
+        // Fallback in case the measurement callback never arrives.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.fireReveal()
         }
+    }
+
+    /// Resize the panel to exactly fit the content height SwiftUI reports,
+    /// keeping the top edge pinned so it stays anchored under the gear.
+    private func applyContentHeight(_ height: CGFloat) {
+        guard let panel, height > 1 else { return }
+        if abs(panel.frame.height - height) >= 0.5 {
+            let newFrame = NSRect(
+                x: panel.frame.minX,
+                y: pinnedTopY - height,
+                width: panel.frame.width,
+                height: height
+            )
+            panel.setFrame(newFrame, display: true)
+            panel.invalidateShadow()
+        }
+        fireReveal()
+    }
+
+    /// Fade the panel in once (after the first height correction). Subsequent
+    /// calls are no-ops.
+    private func fireReveal() {
+        guard let reveal = revealOnMeasure else { return }
+        revealOnMeasure = nil
+        reveal()
     }
 
     func close() {
@@ -104,10 +193,10 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
 
     private func close(_ panel: SettingsPopoverPanel, animated: Bool, suppressImmediateReopen: Bool = false) {
         removeOutsideClickMonitor()
+        revealOnMeasure = nil
         if suppressImmediateReopen {
             suppressShowUntil = Date(timeIntervalSinceNow: 0.25)
         }
-        let finalOrigin = NSPoint(x: panel.frame.minX, y: panel.frame.minY + 8)
 
         guard animated else {
             if self.panel === panel {
@@ -121,17 +210,17 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
             self.panel = nil
         }
 
+        // Pure in-place fade out — no position slide.
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
-            panel.animator().setFrameOrigin(finalOrigin)
         }
 
         panel.perform(#selector(NSWindow.close), with: nil, afterDelay: 0.13)
     }
 
-    private func origin(relativeTo parentWindow: NSWindow?) -> NSPoint {
+    private func origin(relativeTo parentWindow: NSWindow?, size: NSSize) -> NSPoint {
         let parentFrame = parentWindow?.frame
             ?? NotchGeometry.targetScreen()?.frame
             ?? NSScreen.main?.frame
@@ -143,13 +232,13 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
             ?? parentFrame
 
         let preferredOrigin = NSPoint(
-            x: parentFrame.maxX - contentSize.width - 22,
-            y: parentFrame.maxY - contentSize.height - 68
+            x: parentFrame.maxX - size.width - 22,
+            y: parentFrame.maxY - size.height - 88
         )
 
         return NSPoint(
-            x: min(max(preferredOrigin.x, screenFrame.minX + 10), screenFrame.maxX - contentSize.width - 10),
-            y: min(max(preferredOrigin.y, screenFrame.minY + 10), screenFrame.maxY - contentSize.height - 10)
+            x: min(max(preferredOrigin.x, screenFrame.minX + 10), screenFrame.maxX - size.width - 10),
+            y: min(max(preferredOrigin.y, screenFrame.minY + 10), screenFrame.maxY - size.height - 10)
         )
     }
 
@@ -187,13 +276,13 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
 struct SettingsPopoverView: View {
     @ObservedObject var settingsStore: AppSettingsStore
     @ObservedObject var store: NoteStore
-    @State private var appeared = false
+    let panelSize: CGSize
+    var onMeasuredHeight: ((CGFloat) -> Void)? = nil
     @State private var pendingDeleteProfile: NoteProfile?
 
     var body: some View {
         ZStack {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 8) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14, weight: .semibold))
@@ -204,173 +293,196 @@ struct SettingsPopoverView: View {
                     .foregroundStyle(.white.opacity(0.92))
             }
 
-            profilesSection
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Trigger")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.50))
-
-                HStack(spacing: 8) {
-                    ForEach(TriggerMode.allCases) { mode in
-                        Button {
-                            settingsStore.triggerMode = mode
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: mode.systemImage)
-                                    .font(.system(size: 14, weight: .semibold))
-                                Text(mode.title)
-                                    .font(.system(size: 14, weight: .semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                        }
-                        .buttonStyle(PopoverTriggerButtonStyle(isSelected: settingsStore.triggerMode == mode))
-                    }
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
+                    profilesSection
+                    generalSection
                 }
-            }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Indentation")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.50))
-
-                HStack(spacing: 8) {
-                    indentButton(title: "Tab", icon: "arrow.right.to.line", selected: !settingsStore.indentUsesSpaces) {
-                        settingsStore.indentUsesSpaces = false
-                    }
-                    indentButton(title: "Spaces", icon: "space", selected: settingsStore.indentUsesSpaces) {
-                        settingsStore.indentUsesSpaces = true
-                    }
+                VStack(alignment: .leading, spacing: 16) {
+                    triggerSection
+                    indentationSection
+                    codeBlockSection
                 }
-
-                HStack(spacing: 10) {
-                    Text("Spaces per tab")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
-
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 2) {
-                        ForEach([2, 4], id: \.self) { count in
-                            indentCountSegment(count, selected: settingsStore.indentSpaceCount == count) {
-                                settingsStore.indentSpaceCount = count
-                            }
-                        }
-                    }
-                    .padding(2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.white.opacity(0.06))
-                    )
-                }
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(0.055))
-                )
-                .opacity(settingsStore.indentUsesSpaces ? 1 : 0.35)
-                .disabled(!settingsStore.indentUsesSpaces)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Code Block")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.50))
-
-                HStack(spacing: 10) {
-                    Text("Theme")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
-
-                    Spacer(minLength: 0)
-
-                    Menu {
-                        ForEach(AppSettingsStore.codeThemes) { theme in
-                            Button {
-                                settingsStore.codeTheme = theme.id
-                            } label: {
-                                if settingsStore.codeTheme == theme.id {
-                                    Label(theme.name, systemImage: "checkmark")
-                                } else {
-                                    Text(theme.name)
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(currentCodeThemeName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(0.055))
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("General")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.50))
-
-                toggleRow("Ask before deleting", isOn: $settingsStore.confirmBeforeDelete)
-                toggleRow("Launch at login", isOn: $settingsStore.launchAtLogin)
-
-                Button {
-                    NSApp.terminate(nil)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "power")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Quit NotchNotes")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundStyle(Color(red: 0.95, green: 0.45, blue: 0.45))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 34)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.white.opacity(0.055))
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .pointingHandCursor()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(14)
-        }
-        .scrollBounceBehavior(.basedOnSize)
+        .padding(16)
 
             if let pending = pendingDeleteProfile {
                 deleteProfileConfirmation(pending)
             }
         }
-        .frame(width: 258, height: 560)
+        .frame(width: panelSize.width)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.045, green: 0.045, blue: 0.052).opacity(0.98))
         )
-        .shadow(color: .black.opacity(0.45), radius: 24, x: 0, y: 14)
-        .scaleEffect(appeared ? 1 : 0.965, anchor: .topTrailing)
-        .opacity(appeared ? 1 : 0)
-        .animation(.spring(response: 0.22, dampingFraction: 0.86), value: appeared)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { onMeasuredHeight?(proxy.size.height) }
+                    .onChange(of: proxy.size.height) { _, newHeight in
+                        onMeasuredHeight?(newHeight)
+                    }
+            }
+        )
         .onAppear {
-            appeared = true
             settingsStore.refreshLaunchAtLoginStatus()
+        }
+    }
+
+    private var triggerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Trigger")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            HStack(spacing: 8) {
+                ForEach(TriggerMode.allCases) { mode in
+                    Button {
+                        settingsStore.triggerMode = mode
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: mode.systemImage)
+                                .font(.system(size: 14, weight: .semibold))
+                            Text(mode.title)
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                    }
+                    .buttonStyle(PopoverTriggerButtonStyle(isSelected: settingsStore.triggerMode == mode))
+                }
+            }
+        }
+    }
+
+    private var indentationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Indentation")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            HStack(spacing: 8) {
+                indentButton(title: "Tab", icon: "arrow.right.to.line", selected: !settingsStore.indentUsesSpaces) {
+                    settingsStore.indentUsesSpaces = false
+                }
+                indentButton(title: "Spaces", icon: "space", selected: settingsStore.indentUsesSpaces) {
+                    settingsStore.indentUsesSpaces = true
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text("Spaces per tab")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 2) {
+                    ForEach([2, 4], id: \.self) { count in
+                        indentCountSegment(count, selected: settingsStore.indentSpaceCount == count) {
+                            settingsStore.indentSpaceCount = count
+                        }
+                    }
+                }
+                .padding(2)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.06))
+                )
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.white.opacity(0.055))
+            )
+            .opacity(settingsStore.indentUsesSpaces ? 1 : 0.35)
+            .disabled(!settingsStore.indentUsesSpaces)
+        }
+    }
+
+    private var codeBlockSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Code Block")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            HStack(spacing: 10) {
+                Text("Theme")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+
+                Spacer(minLength: 0)
+
+                Menu {
+                    ForEach(AppSettingsStore.codeThemes) { theme in
+                        Button {
+                            settingsStore.codeTheme = theme.id
+                        } label: {
+                            if settingsStore.codeTheme == theme.id {
+                                Label(theme.name, systemImage: "checkmark")
+                            } else {
+                                Text(theme.name)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(currentCodeThemeName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.white.opacity(0.055))
+            )
+        }
+    }
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("General")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            toggleRow("Ask before deleting", isOn: $settingsStore.confirmBeforeDelete)
+            toggleRow("Launch at login", isOn: $settingsStore.launchAtLogin)
+
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "power")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Quit NotchNotes")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(Color(red: 0.95, green: 0.45, blue: 0.45))
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(0.055))
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor()
         }
     }
 
