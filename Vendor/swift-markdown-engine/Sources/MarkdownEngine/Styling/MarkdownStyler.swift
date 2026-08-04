@@ -54,6 +54,7 @@ extension MarkdownStyler {
         let baseDescriptor: NSFontDescriptor
         let fontName: String
         let caretLocation: Int
+        let collapsedListAnchors: Set<Int>
         let layoutBridge: LayoutBridge?
         let baseDefaultLineHeight: CGFloat
         let baseParagraphSpacing: CGFloat
@@ -82,6 +83,7 @@ enum MarkdownStyler {
         layoutBridge: LayoutBridge? = nil,
         caretLocation: Int,
         activeTokenIndices: Set<Int>,
+        collapsedListAnchors: Set<Int> = [],
         wikiLinkIDProvider: (NSRange) -> String? = { _ in nil },
         precomputedTokens: [MarkdownToken]? = nil,
         scopedRanges: [NSRange]? = nil,
@@ -132,6 +134,7 @@ enum MarkdownStyler {
             baseDescriptor: baseFont.fontDescriptor,
             fontName: fontName,
             caretLocation: caretLocation,
+            collapsedListAnchors: collapsedListAnchors,
             layoutBridge: layoutBridge,
             baseDefaultLineHeight: baseDefaultLineHeight,
             baseParagraphSpacing: baseParagraphSpacing,
@@ -173,6 +176,7 @@ enum MarkdownStyler {
         result += styleIncompleteLinkBrackets(ctx)
         result += styleTaskCheckboxes(ctx)
         result += shrinkInactiveMarkers(ctx)
+        result += styleListFolding(ctx)
         return result
     }
 }

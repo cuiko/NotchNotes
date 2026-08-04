@@ -24,6 +24,9 @@ extension NativeTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if toggleListFoldIfHit(event: event) {
+            return
+        }
         if let toggled = toggleTaskCheckboxIfHit(event: event), toggled {
             return
         }

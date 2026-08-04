@@ -19,6 +19,11 @@ extension NSAttributedString.Key {
     static let latexBlockOffsetY = NSAttributedString.Key("LatexBlockOffsetY")
     static let blockquoteAccent = NSAttributedString.Key("BlockquoteAccentColor")
     static let horizontalRule = NSAttributedString.Key("HorizontalRuleColor")
+    /// On a foldable list parent's marker: Bool = is the subtree collapsed.
+    static let listDisclosure = NSAttributedString.Key("ListDisclosureCollapsed")
+    /// On a collapsed child's hidden text: marks it so overlays (checkboxes,
+    /// images) drawn from other attributes are skipped while hidden.
+    static let listCollapsedChild = NSAttributedString.Key("ListCollapsedChild")
 }
 
 final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
@@ -64,6 +69,14 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
         for rect in blockImageRects(at: .zero) {
             bounds = bounds.union(rect)
         }
+        // Reserve room to the left of the marker for a disclosure chevron, which
+        // for a top-level item sits in the text inset (negative container x).
+        if hasListDisclosure {
+            let ext: CGFloat = 20
+            let left = min(bounds.origin.x, -ext)
+            bounds.size.width += bounds.origin.x - left
+            bounds.origin.x = left
+        }
         return bounds
     }
 
@@ -87,6 +100,9 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         // 4. Task checkboxes (on top of hidden [ ]/[x] markers)
         drawTaskCheckboxes(at: point, in: context)
+
+        // 5. List disclosure chevrons (to the left of a foldable item's marker)
+        drawListDisclosures(at: point, in: context)
     }
 
     // MARK: - Helpers
@@ -486,6 +502,7 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         ts.enumerateAttribute(.latexImage, in: range, options: []) { [weak self] value, attrRange, _ in
             guard let self, let image = value as? NSImage else { return }
+            if ts.attribute(.listCollapsedChild, at: attrRange.location, effectiveRange: nil) != nil { return }
 
             let boundsVal = ts.attribute(.latexBounds, at: attrRange.location, effectiveRange: nil) as? NSValue
             let imageBounds = boundsVal?.rectValue ?? CGRect(origin: .zero, size: image.size)
@@ -520,6 +537,7 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         ts.enumerateAttribute(.taskCheckbox, in: range, options: []) { [weak self] value, attrRange, _ in
             guard let self, value != nil else { return }
+            if ts.attribute(.listCollapsedChild, at: attrRange.location, effectiveRange: nil) != nil { return }
 
             let isChecked = (value as? Bool) ?? false
             guard let pos = drawPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
@@ -576,6 +594,86 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
                 checkboxPath.lineWidth = 1
                 checkboxPath.stroke()
             }
+        }
+    }
+
+    // MARK: - List Disclosure Chevrons
+
+    private var hasListDisclosure: Bool {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return false }
+        var found = false
+        ts.enumerateAttribute(.listDisclosure, in: range, options: []) { value, _, stop in
+            if value != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
+
+    private func drawListDisclosures(at point: CGPoint, in context: CGContext) {
+        guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
+        NSGraphicsContext.current = nsContext
+
+        // The chevron shows for the line the caret is on (a selection change
+        // repaints both the old and new line's fragments), plus any collapsed
+        // item so its hidden content stays discoverable.
+        let caretLineStart: Int? = {
+            guard let tv = textLayoutManager?.textContainer?.textView else { return nil }
+            let sel = tv.selectedRange()
+            guard sel.location != NSNotFound else { return nil }
+            let ns = ts.string as NSString
+            let loc = min(max(0, sel.location), ns.length)
+            return ns.lineRange(for: NSRange(location: loc, length: 0)).location
+        }()
+
+        ts.enumerateAttribute(.listDisclosure, in: range, options: []) { [weak self] value, attrRange, _ in
+            guard let self, let isCollapsed = value as? Bool else { return }
+            // A nested foldable item hidden inside a collapsed ancestor must not
+            // draw its own chevron.
+            if ts.attribute(.listCollapsedChild, at: attrRange.location, effectiveRange: nil) != nil { return }
+            // Expanded items reveal their chevron only when the caret is on that
+            // line; collapsed items always show it.
+            if !isCollapsed {
+                let lineStart = (ts.string as NSString).lineRange(for: NSRange(location: attrRange.location, length: 0)).location
+                guard lineStart == caretLineStart else { return }
+            }
+            guard let pos = self.drawPosition(forDocumentCharAt: attrRange.location, point: point) else { return }
+
+            let font = (ts.attribute(.font, at: attrRange.location, effectiveRange: nil) as? NSFont)
+                ?? (self.textLayoutManager?.textContainer?.textView?.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize))
+            let ascent = max(0, font.ascender)
+            let descent = max(0, -font.descender)
+            let lineHeight = max(1, ceil(ascent + descent))
+            let half = max(3, floor(lineHeight * 0.22))   // chevron half-extent
+            // To-do anchors sit on the checkbox `[`, whose box is drawn a few
+            // points to the right, so give them a wider gap to match bullets.
+            let anchorChar = (ts.string as NSString).substring(with: NSRange(location: attrRange.location, length: 1))
+            let gap: CGFloat = (anchorChar == "[") ? 12 : 6
+            let centerX = pos.x - gap - half
+            let centerY = pos.baselineY + (descent - ascent) / 2
+
+            let scale = self.textLayoutManager?.textContainer?.textView?.window?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor ?? 2.0
+            func px(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
+
+            // Thin stroked chevron: "⌄" when expanded, "›" when collapsed.
+            let path = NSBezierPath()
+            if isCollapsed {
+                path.move(to: CGPoint(x: px(centerX - half * 0.55), y: px(centerY - half)))
+                path.line(to: CGPoint(x: px(centerX + half * 0.55), y: px(centerY)))
+                path.line(to: CGPoint(x: px(centerX - half * 0.55), y: px(centerY + half)))
+            } else {
+                path.move(to: CGPoint(x: px(centerX - half), y: px(centerY - half * 0.55)))
+                path.line(to: CGPoint(x: px(centerX), y: px(centerY + half * 0.55)))
+                path.line(to: CGPoint(x: px(centerX + half), y: px(centerY - half * 0.55)))
+            }
+            path.lineWidth = 1.4
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            NSColor(white: 1.0, alpha: 0.38).setStroke()
+            path.stroke()
         }
     }
 }

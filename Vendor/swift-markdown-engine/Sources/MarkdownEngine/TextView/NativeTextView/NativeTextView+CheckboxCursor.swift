@@ -43,7 +43,7 @@ extension NativeTextView {
         if cursorManagementSuppressed { return }
         updateImageDeleteButton(for: event)
         updateCodeCopyButton(for: event)
-        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) {
+        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) || foldChevronHit(at: event) != nil {
             NSCursor.pointingHand.set()
         } else {
             super.mouseMoved(with: event)
@@ -52,7 +52,7 @@ extension NativeTextView {
 
     override func cursorUpdate(with event: NSEvent) {
         if cursorManagementSuppressed { return }
-        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) {
+        if isPointOverImageDeleteButton(event) || isPointOverImageEditButton(event) || isPointOverImageZoomButton(event) || isPointOverTaskCheckbox(event) || isPointOverCodeCopyButton(event) || foldChevronHit(at: event) != nil {
             NSCursor.pointingHand.set()
         } else {
             super.cursorUpdate(with: event)

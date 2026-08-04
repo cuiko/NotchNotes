@@ -23,6 +23,13 @@ extension NativeTextViewCoordinator {
         let displayText = displayState.display
         wikiLinkMetadata = displayState.metadata
 
+        // A different document (tab switch / external set) invalidates fold
+        // anchors keyed by the old document's offsets. Fold re-renders pass the
+        // same `text`, so those keep the anchors. (Persistence seeds them back.)
+        if text != lastSyncedText, let native = textView as? NativeTextView, !native.collapsedListAnchors.isEmpty {
+            native.collapsedListAnchors = []
+        }
+
         if textView.string != displayText {
             textView.string = displayText
         }
@@ -67,6 +74,7 @@ extension NativeTextViewCoordinator {
             layoutBridge: layoutBridge,
             caretLocation: caretLocation,
             activeTokenIndices: activeTokenIndices,
+            collapsedListAnchors: (textView as? NativeTextView)?.collapsedListAnchors ?? [],
             precomputedTokens: tokens,
             configuration: configuration
         )
@@ -111,12 +119,20 @@ extension NativeTextViewCoordinator {
             paragraphStyle: paragraphStyle,
             caretLocation: textView.selectedRange().location,
             activeTokenIndices: activeTokenIndices,
+            collapsedListAnchors: (textView as? NativeTextView)?.collapsedListAnchors ?? [],
             wikiLinkIDProvider: { [weak self] range in
                 self?.wikiLinkID(for: range)
             },
             precomputedTokens: tokens,
             configuration: configuration
         )
+    }
+
+    /// Re-render the whole document after the collapsed set changed. The text is
+    /// unchanged; this reuses the load path so folding attributes are recomputed
+    /// and the layout reflows to hide/show the affected subtrees.
+    func reapplyStylingAfterFoldChange(_ textView: NSTextView) {
+        rebuildTextStorageAndStyle(textView, from: lastSyncedText, invalidateLayout: true)
     }
 
     func parsedDocument(for text: String) -> ParsedDocument {

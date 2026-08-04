@@ -801,7 +801,7 @@ struct MarkdownNoteEditor: View {
             overscroll: OverscrollPolicy(percent: 0, maxPoints: 0, minPoints: 0),
             dragSelection: DragSelectionPolicy(movementThreshold: 8, edgeTriggerDistance: 8, scrollStepPerTick: 4, ticksPerSecond: 30),
             scrollers: .vertical,
-            textInsets: TextInsets(horizontal: 12, vertical: 12)
+            textInsets: TextInsets(horizontal: 18, vertical: 12)
         )
     }
 }

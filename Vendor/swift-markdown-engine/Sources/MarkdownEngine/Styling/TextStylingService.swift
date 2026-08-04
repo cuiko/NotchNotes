@@ -49,6 +49,7 @@ struct TextStylingService {
         paragraphStyle: NSMutableParagraphStyle,
         caretLocation: Int,
         activeTokenIndices: Set<Int>,
+        collapsedListAnchors: Set<Int> = [],
         wikiLinkIDProvider: (NSRange) -> String?,
         precomputedTokens: [MarkdownToken]? = nil,
         configuration: MarkdownEditorConfiguration = .default
@@ -73,6 +74,7 @@ struct TextStylingService {
             layoutBridge: layoutBridge,
             caretLocation: caretLocation,
             activeTokenIndices: activeTokenIndices,
+            collapsedListAnchors: collapsedListAnchors,
             wikiLinkIDProvider: wikiLinkIDProvider,
             precomputedTokens: precomputedTokens,
             scopedRanges: paragraphs,

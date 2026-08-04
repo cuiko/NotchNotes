@@ -48,6 +48,13 @@ final class NativeTextView: NSTextView {
     // MARK: Drag-select state
     var dragStartMouseScreenLoc: NSPoint?
 
+    // MARK: List folding
+    /// Document offsets of collapsed list parents' line starts. Consulted each
+    /// styling pass to hide their subtrees and orient the disclosure chevron.
+    var collapsedListAnchors: Set<Int> = []
+    /// Called after the user toggles a fold, so the embedder can persist it.
+    var onCollapsedListAnchorsChanged: ((Set<Int>) -> Void)?
+
     // MARK: Image-embed hover buttons
     var imageDeleteButton: NSButton?
     var imageEditButton: NSButton?
