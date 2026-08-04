@@ -170,6 +170,39 @@ final class NoteStore: ObservableObject {
         save()
     }
 
+    var currentProfileName: String {
+        profiles[currentProfileIndex].name
+    }
+
+    /// Creates a NEW profile from imported note texts and switches to it. Never
+    /// modifies or overwrites any existing profile.
+    @discardableResult
+    func importProfile(name: String, tabTexts: [String]) -> UUID {
+        let tabs: [NoteTab] = tabTexts.isEmpty
+            ? [NoteTab()]
+            : tabTexts.map { NoteTab(text: Self.normalizingBulletMarkers(in: $0)) }
+        let profile = NoteProfile(
+            name: uniqueProfileName(from: name),
+            tabs: tabs,
+            activeTabID: tabs[0].id
+        )
+        profiles.append(profile)
+        currentProfileID = profile.id
+        save()
+        return profile.id
+    }
+
+    private func uniqueProfileName(from name: String) -> String {
+        let base = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Imported"
+            : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = Set(profiles.map { $0.name })
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
+    }
+
     private func allTabTexts() -> [String] {
         profiles.flatMap { $0.tabs.map { $0.text } }
     }

@@ -131,6 +131,49 @@ final class LocalImageStore: EmbeddedImageFileProvider, @unchecked Sendable {
         return version
     }
 
+    // MARK: - Import / Export
+
+    /// The stored PNG file for an asset UUID, if it exists on disk.
+    func exportImageURL(forID id: String) -> URL? {
+        let url = imageURL(for: id)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Copies an imported image into the store under its original UUID and
+    /// registers a manifest record so it resolves for `![[…|UUID]]` embeds and
+    /// participates in orphan pruning.
+    func importImage(id: String, displayName: String, pngData: Data) {
+        // `id` comes from an untrusted archive; it must be a plain asset token,
+        // never a path, so it can't escape the images directory.
+        guard !id.isEmpty,
+              !id.hasPrefix("."),
+              id.rangeOfCharacter(from: CharacterSet(charactersIn: "/\\:")) == nil else {
+            return
+        }
+        let storedFilename = "\(id).\(imageExtension)"
+        let url = imageURL(for: id)
+        do {
+            try pngData.write(to: url, options: .atomic)
+            let record = ImageAssetRecord(
+                id: id,
+                displayName: displayName,
+                storedFilename: storedFilename,
+                originalPath: nil,
+                sourceKind: "import",
+                createdAt: Date()
+            )
+            lock.lock()
+            records[id] = record
+            let recordsToSave = records
+            version += 1
+            lock.unlock()
+            saveRecords(recordsToSave)
+        } catch {
+            // Leave the note's embed unresolved rather than crashing on a bad
+            // image; the text still imports.
+        }
+    }
+
     private func save(data: Data, originalName: String, originalFileURL: URL?, sourceKind: String) -> String? {
         let displayName = sanitizedDisplayName(originalName)
         let id = UUID()

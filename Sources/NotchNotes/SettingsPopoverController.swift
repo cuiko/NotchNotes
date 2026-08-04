@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class SettingsPopoverPanel: NSPanel {
@@ -11,6 +12,7 @@ final class SettingsPopoverPanel: NSPanel {
 final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private let settingsStore: AppSettingsStore
     private let noteStore: NoteStore
+    private let imageStore: LocalImageStore
     private var panel: SettingsPopoverPanel?
     private var localOutsideClickMonitor: Any?
     private var globalOutsideClickMonitor: Any?
@@ -19,14 +21,72 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
     private var revealOnMeasure: (() -> Void)?
     private let contentSize: NSSize
 
-    init(settingsStore: AppSettingsStore, noteStore: NoteStore) {
+    init(settingsStore: AppSettingsStore, noteStore: NoteStore, imageStore: LocalImageStore) {
         self.settingsStore = settingsStore
         self.noteStore = noteStore
+        self.imageStore = imageStore
         // Match the popover width to the drawer's minimum width so the settings
         // panel uses the horizontal space instead of being a tall column.
         let drawerWidth = NotchGeometry.layout(for: NotchGeometry.targetScreen()).expandedSize.width
         self.contentSize = NSSize(width: drawerWidth, height: 384)
         super.init()
+    }
+
+    // MARK: - Import / Export
+
+    private func exportNotes() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = "\(sanitizedFilename(noteStore.currentProfileName)).zip"
+        panel.canCreateDirectories = true
+        panel.title = "Export Notes"
+        panel.level = .modalPanel
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try NoteArchive.export(
+                profileName: noteStore.currentProfileName,
+                tabs: noteStore.tabs,
+                imageStore: imageStore,
+                to: url
+            )
+        } catch {
+            presentArchiveError(error, verb: "export")
+        }
+    }
+
+    private func importNotes() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.zip]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.title = "Import Notes"
+        panel.prompt = "Import"
+        panel.level = .modalPanel
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let result = try NoteArchive.importArchive(at: url, imageStore: imageStore)
+            // Always into a brand-new profile — never overwrite existing ones.
+            noteStore.importProfile(name: result.name, tabTexts: result.tabTexts)
+        } catch {
+            presentArchiveError(error, verb: "import")
+        }
+    }
+
+    private func sanitizedFilename(_ name: String) -> String {
+        let cleaned = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"[/\\:*?\"<>|]"#, with: "-", options: .regularExpression)
+        return cleaned.isEmpty ? "NotchNotes" : cleaned
+    }
+
+    private func presentArchiveError(_ error: Error, verb: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not \(verb) notes"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     /// Toggle the popover for the gear button: close when shown, open when
@@ -76,7 +136,9 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
         let view = SettingsPopoverView(
             settingsStore: settingsStore,
             store: noteStore,
-            panelSize: contentSize
+            panelSize: contentSize,
+            onExport: { [weak self] in self?.exportNotes() },
+            onImport: { [weak self] in self?.importNotes() }
         ) { [weak self] height in
             self?.applyContentHeight(height)
         }
@@ -128,9 +190,18 @@ final class SettingsPopoverController: NSObject, NSWindowDelegate {
             }
         }
 
+        panel.initialFirstResponder = nil
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         installOutsideClickMonitor()
+
+        // Don't let the profile-name text field grab focus (and select all its
+        // text) when the popover opens. Clear it now and again next runloop in
+        // case SwiftUI re-focuses it after laying out.
+        panel.makeFirstResponder(nil)
+        DispatchQueue.main.async { [weak panel] in
+            panel?.makeFirstResponder(nil)
+        }
 
         // Fallback in case the measurement callback never arrives.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -277,6 +348,8 @@ struct SettingsPopoverView: View {
     @ObservedObject var settingsStore: AppSettingsStore
     @ObservedObject var store: NoteStore
     let panelSize: CGSize
+    var onExport: () -> Void = {}
+    var onImport: () -> Void = {}
     var onMeasuredHeight: ((CGFloat) -> Void)? = nil
     @State private var pendingDeleteProfile: NoteProfile?
 
@@ -295,14 +368,15 @@ struct SettingsPopoverView: View {
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 16) {
-                    profilesSection
+                    triggerSection
+                    indentationSection
                     generalSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 16) {
-                    triggerSection
-                    indentationSection
+                    profilesSection
+                    notesSection
                     codeBlockSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -484,6 +558,33 @@ struct SettingsPopoverView: View {
             .buttonStyle(.plain)
             .pointingHandCursor()
         }
+    }
+
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Notes")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.50))
+
+            HStack(spacing: 8) {
+                notesActionButton(title: "Export", icon: "square.and.arrow.up", action: onExport)
+                notesActionButton(title: "Import", icon: "square.and.arrow.down", action: onImport)
+            }
+        }
+    }
+
+    private func notesActionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+        }
+        .buttonStyle(PopoverTriggerButtonStyle(isSelected: false))
     }
 
     private func deleteProfileConfirmation(_ profile: NoteProfile) -> some View {

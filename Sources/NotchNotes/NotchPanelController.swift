@@ -35,7 +35,7 @@ final class NotchPanelController: NSObject {
     private let imageStore = LocalImageStore()
     private let drawerState = DrawerState()
     private let editorInteractionState = EditorInteractionState()
-    private lazy var settingsPopoverController = SettingsPopoverController(settingsStore: settingsStore, noteStore: store)
+    private lazy var settingsPopoverController = SettingsPopoverController(settingsStore: settingsStore, noteStore: store, imageStore: imageStore)
     private let hotPanel: NotchPanel
     private let drawerPanel: NotchPanel
     private var hostingView: NSHostingView<NotebookView>?
