@@ -9,6 +9,27 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.6
+
+### Added
+- **Collapsible lists** — a list item with a nested subtree shows a small
+  disclosure chevron (on the caret's line, and always while collapsed); click
+  it to fold the item and hide its children. Folding only changes the display
+  and never edits the note text.
+- **Import & export** — *Settings → Export* saves the current profile's notes
+  and the images they reference as a portable zip (`notes/*.md` +
+  `images/*.png`); *Import* reads such a zip into a brand-new profile without
+  touching existing ones.
+
+### Changed
+- **Settings redesigned as a two-column panel** — the popover matches the
+  drawer's width, sizes its height to its content, and clicking the gear again
+  closes it.
+
+### Fixed
+- **Drawer reveal animation** — opening and closing the drawer scales from the
+  notch again instead of fading.
+
 ## v0.2.5
 
 ### Added
