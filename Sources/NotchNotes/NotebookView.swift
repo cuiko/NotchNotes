@@ -41,6 +41,7 @@ struct NotebookView: View {
     let imageStore: LocalImageStore
     @ObservedObject var drawerState: DrawerState
     @ObservedObject var editorInteractionState: EditorInteractionState
+    @ObservedObject var findState: FindState
     let layout: NotchLayout
     let onOpenSettings: () -> Void
 
@@ -80,13 +81,22 @@ struct NotebookView: View {
             drawer(container: proxy.size)
         }
         .onChange(of: confirmation != nil) { _, presenting in
-            editorInteractionState.setCursorSuppressed(presenting)
+            updateCursorSuppression()
             if presenting {
                 editorInteractionState.beginPresentingDialog()
             } else {
                 editorInteractionState.endPresentingDialog()
             }
         }
+        .onChange(of: findState.isActive) { _, _ in
+            // Stop the editor asserting its I-beam so the find bar's buttons can
+            // show the pointing-hand cursor.
+            updateCursorSuppression()
+        }
+    }
+
+    private func updateCursorSuppression() {
+        editorInteractionState.setCursorSuppressed(confirmation != nil || findState.isActive)
     }
 
     private func drawer(container: CGSize) -> some View {
@@ -207,7 +217,17 @@ struct NotebookView: View {
                 )
                 .frame(width: editorSize(container).width, height: editorSize(container).height)
                 .background(Color(red: 0.06, green: 0.06, blue: 0.07))
+                .overlay(alignment: .topTrailing) {
+                    if findState.isActive {
+                        FindBarView(findState: findState, store: store)
+                            .padding(.top, 8)
+                            .padding(.trailing, 10)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: findState.isActive)
             }
+            .overlay { findShortcuts }
         }
         .padding(.top, toolbarTopPadding)
         .padding(.horizontal, contentHorizontalPadding)
@@ -224,6 +244,32 @@ struct NotebookView: View {
                 store.selectionRange(for: newTabID),
                 reveal: false
             )
+        }
+    }
+
+    /// Invisible buttons carrying the find keyboard shortcuts (⌘F to toggle,
+    /// esc to close) so they work while the editor has focus.
+    private var findShortcuts: some View {
+        ZStack {
+            Button("") { toggleFind() }
+                .keyboardShortcut("f", modifiers: .command)
+
+            if findState.isActive {
+                Button("") { findState.close() }
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
+        .buttonStyle(.plain)
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func toggleFind() {
+        if findState.isActive {
+            findState.close()
+        } else {
+            findState.open()
         }
     }
 
@@ -787,7 +833,11 @@ struct MarkdownNoteEditor: View {
 
         let services = MarkdownEditorServices(
             images: imageStore,
-            syntaxHighlighter: Self.sharedCodeHighlighter
+            syntaxHighlighter: Self.sharedCodeHighlighter,
+            bus: MarkdownEditorBus(
+                findScrollToRange: FindBus.scrollToRange,
+                findClearHighlights: FindBus.clear
+            )
         )
 
         return MarkdownEditorConfiguration(

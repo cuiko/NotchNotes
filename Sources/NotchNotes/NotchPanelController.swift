@@ -35,6 +35,7 @@ final class NotchPanelController: NSObject {
     private let imageStore = LocalImageStore()
     private let drawerState = DrawerState()
     private let editorInteractionState = EditorInteractionState()
+    private let findState = FindState()
     private lazy var settingsPopoverController = SettingsPopoverController(settingsStore: settingsStore, noteStore: store, imageStore: imageStore)
     private let hotPanel: NotchPanel
     private let drawerPanel: NotchPanel
@@ -184,6 +185,7 @@ final class NotchPanelController: NSObject {
             imageStore: imageStore,
             drawerState: drawerState,
             editorInteractionState: editorInteractionState,
+            findState: findState,
             layout: layout,
             onOpenSettings: { [weak self] in self?.openSettingsPopover() }
         )
