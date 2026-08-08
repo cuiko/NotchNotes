@@ -9,6 +9,26 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.7
+
+### Added
+- **Find in note** — ⌘F opens a find bar that highlights every match, marks
+  and scrolls to the current one, with next/previous navigation, a match
+  counter, and a case-sensitive toggle (off by default).
+- **Formatting keyboard shortcuts** — the toolbar commands gain keys: ⌘B bold,
+  ⌘I italic, ⇧⌘S strikethrough, ⌘` inline code, ⌘K link, ⇧⌘. quote, and
+  ⇧⌘7 / ⇧⌘8 / ⇧⌘9 for numbered / bulleted / todo lists.
+
+### Changed
+- **List folds persist per tab** — collapsed list items are remembered for each
+  tab and across relaunches instead of being cleared on tab switch.
+- **Spell and grammar checking off** — the editor no longer draws the red/green
+  squiggly underlines.
+
+### Fixed
+- **Scroll position across tabs** — switching tabs restores each tab's scroll
+  position instead of jumping to the top or the caret.
+
 ## v0.2.6
 
 ### Added
