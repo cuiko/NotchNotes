@@ -68,6 +68,12 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
     /// Fires when the set of visible code blocks changes, so embedders can
     /// overlay copy buttons (see ``CodeBlockButton``).
     public var onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)?
+    /// Supplies the persisted set of collapsed list-item offsets for a
+    /// document id, so folds are restored when switching to it.
+    public var collapsedListAnchorsProvider: ((String) -> Set<Int>)?
+    /// Fires when the user folds/unfolds a list item, with the document id and
+    /// the new collapsed set, so embedders can persist it.
+    public var onCollapsedListAnchorsChange: ((String, Set<Int>) -> Void)?
 
     public init(
         text: Binding<String>,
@@ -82,7 +88,9 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         onLinkClick: ((String) -> Void)? = nil,
         onCaretRectChange: ((CGRect) -> Void)? = nil,
         onInlineSelectionChange: ((InlineSelectionState?) -> Void)? = nil,
-        onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)? = nil
+        onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)? = nil,
+        collapsedListAnchorsProvider: ((String) -> Set<Int>)? = nil,
+        onCollapsedListAnchorsChange: ((String, Set<Int>) -> Void)? = nil
     ) {
         self._text = text
         self._isWikiLinkActive = isWikiLinkActive
@@ -97,6 +105,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         self.onCaretRectChange = onCaretRectChange
         self.onInlineSelectionChange = onInlineSelectionChange
         self.onCodeBlockSelectionChange = onCodeBlockSelectionChange
+        self.collapsedListAnchorsProvider = collapsedListAnchorsProvider
+        self.onCollapsedListAnchorsChange = onCollapsedListAnchorsChange
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -138,6 +148,12 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.maxOverscrollPoints = configuration.overscroll.maxPoints
         textView.minOverscrollPoints = configuration.overscroll.minPoints
         context.coordinator.configuration = configuration
+        // Seed persisted folds for this document and persist future toggles.
+        textView.collapsedListAnchors = collapsedListAnchorsProvider?(documentId) ?? []
+        textView.onCollapsedListAnchorsChanged = { [weak coordinator = context.coordinator] anchors in
+            guard let docId = coordinator?.documentId else { return }
+            self.onCollapsedListAnchorsChange?(docId, anchors)
+        }
         textView.insertionPointColor = configuration.theme.caretColor
         textView.selectedTextAttributes = [.backgroundColor: configuration.theme.selectionColor]
         textView.isEditable = isEditable
@@ -320,6 +336,10 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             context.coordinator.didInitialFormatting = false
             context.coordinator.didEnsureLayoutForCurrentDocument = false
             context.coordinator.resetImageEmbedState()
+            // Load this document's persisted folds so the rebuild below applies
+            // them (and stale anchors from the previous document don't leak).
+            (textView as? NativeTextView)?.collapsedListAnchors =
+                collapsedListAnchorsProvider?(documentId) ?? []
         }
 
         let font = NSFont(name: fontName, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)

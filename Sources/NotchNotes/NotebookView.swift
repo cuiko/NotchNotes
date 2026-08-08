@@ -744,7 +744,13 @@ struct MarkdownNoteEditor: View {
             fontSize: 15,
             documentId: store.activeTabID.uuidString,
             isEditable: true,
-            onPasteImage: savePastedImage
+            onPasteImage: savePastedImage,
+            collapsedListAnchorsProvider: { [store] docId in
+                store.collapsedListOffsets(forTabID: docId)
+            },
+            onCollapsedListAnchorsChange: { [store] docId, anchors in
+                store.setCollapsedListOffsets(anchors, forTabID: docId)
+            }
         )
         .background {
             EditorFocusBinder(state: editorInteractionState)

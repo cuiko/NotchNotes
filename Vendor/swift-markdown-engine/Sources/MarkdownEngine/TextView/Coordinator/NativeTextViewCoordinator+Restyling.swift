@@ -23,13 +23,6 @@ extension NativeTextViewCoordinator {
         let displayText = displayState.display
         wikiLinkMetadata = displayState.metadata
 
-        // A different document (tab switch / external set) invalidates fold
-        // anchors keyed by the old document's offsets. Fold re-renders pass the
-        // same `text`, so those keep the anchors. (Persistence seeds them back.)
-        if text != lastSyncedText, let native = textView as? NativeTextView, !native.collapsedListAnchors.isEmpty {
-            native.collapsedListAnchors = []
-        }
-
         if textView.string != displayText {
             textView.string = displayText
         }

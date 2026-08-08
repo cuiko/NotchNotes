@@ -20,6 +20,9 @@ struct NoteTab: Identifiable, Codable, Equatable {
     var selectionLocation: Int?
     var selectionLength: Int?
     var colorHex: String
+    /// Character offsets of list items collapsed in this tab, so folds survive
+    /// tab switches and relaunches.
+    var collapsedListOffsets: [Int]?
 
     init(id: UUID = UUID(), text: String = "", createdAt: Date = Date()) {
         self.id = id
@@ -28,6 +31,7 @@ struct NoteTab: Identifiable, Codable, Equatable {
         selectionLocation = 0
         selectionLength = 0
         colorHex = randomTabColor()
+        collapsedListOffsets = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +43,7 @@ struct NoteTab: Identifiable, Codable, Equatable {
         selectionLength = try container.decodeIfPresent(Int.self, forKey: .selectionLength)
         colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
             ?? randomTabColor()
+        collapsedListOffsets = try container.decodeIfPresent([Int].self, forKey: .collapsedListOffsets)
     }
 }
 
@@ -205,6 +210,28 @@ final class NoteStore: ObservableObject {
 
     private func allTabTexts() -> [String] {
         profiles.flatMap { $0.tabs.map { $0.text } }
+    }
+
+    // MARK: - List fold state (per tab, keyed by the tab's UUID string)
+
+    func collapsedListOffsets(forTabID idString: String) -> Set<Int> {
+        guard let id = UUID(uuidString: idString) else { return [] }
+        for profile in profiles {
+            if let tab = profile.tabs.first(where: { $0.id == id }) {
+                return Set(tab.collapsedListOffsets ?? [])
+            }
+        }
+        return []
+    }
+
+    func setCollapsedListOffsets(_ offsets: Set<Int>, forTabID idString: String) {
+        guard let id = UUID(uuidString: idString) else { return }
+        let ci = currentProfileIndex
+        guard let index = profiles[ci].tabs.firstIndex(where: { $0.id == id }) else { return }
+        let stored = offsets.isEmpty ? nil : offsets.sorted()
+        guard profiles[ci].tabs[index].collapsedListOffsets != stored else { return }
+        profiles[ci].tabs[index].collapsedListOffsets = stored
+        save()
     }
 
     // MARK: - Tabs (operate on the current profile)
