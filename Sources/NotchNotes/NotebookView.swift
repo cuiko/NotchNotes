@@ -380,7 +380,8 @@ struct MarkdownShortcutToolbar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(MarkdownToolbarButtonStyle())
-                .help(command.help)
+                .keyboardShortcut(command.keyboardShortcut)
+                .help("\(command.help) (\(command.shortcutHint))")
             }
 
             Spacer(minLength: 0)

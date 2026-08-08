@@ -39,6 +39,35 @@ enum MarkdownCommand: CaseIterable, Identifiable {
         case .todoList: return "Todo list"
         }
     }
+
+    var keyboardShortcut: KeyboardShortcut {
+        switch self {
+        case .bold: return KeyboardShortcut("b", modifiers: .command)
+        case .italic: return KeyboardShortcut("i", modifiers: .command)
+        case .strikethrough: return KeyboardShortcut("s", modifiers: [.command, .shift])
+        case .inlineCode: return KeyboardShortcut("`", modifiers: .command)
+        case .link: return KeyboardShortcut("k", modifiers: .command)
+        case .quote: return KeyboardShortcut(".", modifiers: [.command, .shift])
+        case .orderedList: return KeyboardShortcut("7", modifiers: [.command, .shift])
+        case .unorderedList: return KeyboardShortcut("8", modifiers: [.command, .shift])
+        case .todoList: return KeyboardShortcut("9", modifiers: [.command, .shift])
+        }
+    }
+
+    /// Human-readable shortcut for tooltips, e.g. "⌘B".
+    var shortcutHint: String {
+        switch self {
+        case .bold: return "⌘B"
+        case .italic: return "⌘I"
+        case .strikethrough: return "⇧⌘S"
+        case .inlineCode: return "⌘`"
+        case .link: return "⌘K"
+        case .quote: return "⇧⌘."
+        case .orderedList: return "⇧⌘7"
+        case .unorderedList: return "⇧⌘8"
+        case .todoList: return "⇧⌘9"
+        }
+    }
 }
 
 @MainActor
