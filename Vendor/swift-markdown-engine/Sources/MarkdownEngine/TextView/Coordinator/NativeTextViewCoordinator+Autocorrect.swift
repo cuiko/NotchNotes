@@ -50,8 +50,9 @@ extension NativeTextViewCoordinator {
         cachedSpellingDisabled = shouldDisableSpelling
 
         textView.isAutomaticSpellingCorrectionEnabled = !shouldDisableSpelling
-        textView.isContinuousSpellCheckingEnabled = !shouldDisableSpelling
-        textView.isGrammarCheckingEnabled = !shouldDisableSpelling
+        // Keep spell/grammar checking (the squiggly underlines) off everywhere.
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
         textView.isAutomaticQuoteSubstitutionEnabled = !shouldDisableSpelling
         textView.isAutomaticDashSubstitutionEnabled = false
     }

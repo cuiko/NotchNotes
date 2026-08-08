@@ -172,8 +172,9 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.baseFont = font
         textView.allowsUndo = true
         textView.isAutomaticSpellingCorrectionEnabled = true
-        textView.isContinuousSpellCheckingEnabled = true
-        textView.isGrammarCheckingEnabled = true
+        // Spell/grammar checking (the red/green squiggles) stays off.
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
         textView.isAutomaticQuoteSubstitutionEnabled = true
         textView.isAutomaticDataDetectionEnabled = true
         textView.isAutomaticDashSubstitutionEnabled = false
