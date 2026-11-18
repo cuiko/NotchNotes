@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$ROOT_DIR/NotchNotes.app"
+APP_DIR="${APP_DIR:-$ROOT_DIR/NotchNotes.app}"
 APPLICATIONS_APP_DIR="/Applications/NotchNotes.app"
+INSTALL_APP="${INSTALL_APP:-1}"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -17,13 +18,23 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp ".build/release/NotchNotes" "$MACOS_DIR/NotchNotes"
 
-# Copy SwiftPM resource bundles (e.g. HighlighterSwift's highlight.js + theme
-# CSS) into Resources so `Bundle.module` can find them at runtime.
+# Copy SwiftPM resource bundles into Resources. The vendored HighlighterSwift
+# resolves its packaged bundle here before falling back to `Bundle.module`.
 shopt -s nullglob
 for bundle in "$ROOT_DIR"/.build/release/*.bundle; do
   cp -R "$bundle" "$RESOURCES_DIR/"
 done
 shopt -u nullglob
+
+if [[ ! -f "$RESOURCES_DIR/Highlighter_Highlighter.bundle/highlight.min.js" &&
+      ! -f "$RESOURCES_DIR/Highlighter_Highlighter.bundle/Contents/Resources/highlight.min.js" ]]; then
+  echo "Missing HighlighterSwift resources in $RESOURCES_DIR" >&2
+  exit 1
+fi
+
+mkdir -p "$RESOURCES_DIR/Licenses"
+cp "$ROOT_DIR/Vendor/HighlighterSwift/LICENCE.md" "$RESOURCES_DIR/Licenses/HighlighterSwift.md"
+cp "$ROOT_DIR/Vendor/HighlighterSwift/Sources/Assets/LICENCE" "$RESOURCES_DIR/Licenses/highlight.js.txt"
 
 if [[ -f "$SOURCE_ICON" ]]; then
   TMP_DIR="$(mktemp -d)"
@@ -60,9 +71,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.2.7</string>
+  <string>0.2.8</string>
   <key>CFBundleVersion</key>
-  <string>9</string>
+  <string>10</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -74,8 +85,10 @@ PLIST
 codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
-rm -rf "$APPLICATIONS_APP_DIR"
-cp -R "$APP_DIR" "$APPLICATIONS_APP_DIR"
-
 echo "Built $APP_DIR"
-echo "Copied $APPLICATIONS_APP_DIR"
+
+if [[ "$INSTALL_APP" == "1" ]]; then
+  rm -rf "$APPLICATIONS_APP_DIR"
+  cp -R "$APP_DIR" "$APPLICATIONS_APP_DIR"
+  echo "Copied $APPLICATIONS_APP_DIR"
+fi

@@ -24,7 +24,7 @@ let package = Package(
         .library(name: "MarkdownEngineLatex", targets: ["MarkdownEngineLatex"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/smittytone/HighlighterSwift", from: "3.0.0"),
+        .package(path: "../HighlighterSwift"),
         .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.0"),
     ],
     targets: [

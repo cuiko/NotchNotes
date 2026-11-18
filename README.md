@@ -37,6 +37,19 @@ After launch, move the cursor to the top-center notch area. The compact notch co
 open NotchNotes.app
 ```
 
+To package without installing into Applications, use `INSTALL_APP=0 ./Scripts/package-app.sh`.
+
+Verify a packaged build on a macOS desktop:
+
+```bash
+swift Scripts/verify-app.swift NotchNotes.app
+```
+
+The check launches a separate app process, hovers over its notch panel, verifies
+that the notebook expands, and closes that process. For release validation, run
+it on an extracted ZIP with the original build directory unavailable so missing
+resources cannot be masked by development files.
+
 ## Distribution
 
 The current downloadable ZIP is intended for testing. For public distribution outside the Mac App Store, sign the app with a Developer ID Application certificate and submit it for Apple notarization.

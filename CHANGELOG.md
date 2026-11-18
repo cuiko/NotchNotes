@@ -9,6 +9,13 @@ Its [releases](https://github.com/oil-oil/NotchNotes/releases) (v0.1.x) provide
 the baseline — the notch panel, live Markdown editing, image paste, local note
 persistence, and the settings popover — which the versions below extend.
 
+## v0.2.8
+
+### Fixed
+- **Crash on launch** — load syntax-highlighting resources from the installed
+  app instead of relying on the original build directory. Downloaded builds
+  now start correctly on machines without the project's build files.
+
 ## v0.2.7
 
 ### Added
